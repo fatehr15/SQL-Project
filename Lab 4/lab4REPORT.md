@@ -155,8 +155,3 @@ The statement-level trigger proves to be an effective solution when detailed row
 
 ---
 
----
-
-**Lab Completed By:** [Your Name]  
-**Date:** December 29, 2025  
-**Database System:** PostgreSQL
