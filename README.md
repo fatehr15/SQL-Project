@@ -32,7 +32,7 @@ CREATE DATABASE university;
 
 > **Screenshot:** Database creation in pgAdmin
 
-![Creating the University Database](images/image_1.png)
+![Creating the University Database](images/image_7.png)
 
 ---
 
@@ -53,7 +53,7 @@ The SQL commands used to create these tables are provided in **Annex I**.
 
 > **Screenshot:** Tables successfully created
 
-![Tables in pgAdmin](images/image_2.png)
+![Tables in pgAdmin](images/image_6.png)
 
 ---
 
@@ -67,22 +67,62 @@ During this step, some syntax and constraint errors were corrected. Clear commen
 
 ### 5.2 Verifying Data
 
-To verify that data was inserted correctly, we used the following queries:
+To verify that the data was inserted correctly across all tables, the following queries were executed.
 
 ```sql
 SELECT * FROM Department;
-SELECT * FROM Student;
-SELECT * FROM Instructor;
-SELECT * FROM Course;
-SELECT * FROM Room;
-SELECT * FROM Reservation;
+
 ```
 
-> **Screenshot:** Example of SELECT query output
-
-![Select Query Output](images/image_3.png)
-
+> **Screenshot:** Output showing department records
+![department records](images/image_5.png)
 ---
+
+```sql
+SELECT * FROM Student;
+
+```
+
+> **Screenshot:** Output showing student records
+![student records](images/image_4.png)
+---
+
+```sql
+SELECT * FROM Instructor;
+
+```
+
+> **Screenshot:** Output showing instructor records
+![instructor records](images/image_3.png)
+---
+
+```sql
+SELECT * FROM Course;
+
+```
+
+> **Screenshot:** Output showing course records
+![course records](images/image_2.png)
+---
+
+```sql
+SELECT * FROM Room;
+
+```
+
+> **Screenshot:** Output showing room records
+![room records](images/image_1.png)
+---
+
+```sql
+SELECT * FROM Reservation;
+
+```
+
+> **Screenshot:** Output showing reservation records
+![reservation records](images/image_8.png)
+---
+
 
 ## 6. Database Evolution
 
@@ -152,7 +192,7 @@ CREATE TABLE Marks (
 
 > **Screenshot:** Marks table creation
 
-![Marks Table](images/image_5.png)
+![Marks Table](images/image_3.png)
 
 ---
 
@@ -192,7 +232,7 @@ GROUP BY instructor_id;
 
 > **Screenshot:** View result in pgAdmin
 
-![View Result](images/image_6.png)
+![View Result](images/image_2.png)
 
 ---
 
