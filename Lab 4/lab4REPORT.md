@@ -109,7 +109,7 @@ SELECT * FROM Student_Audit_Log;
 - Only **one record** is inserted into `Student_Audit_Log`
 - The `OperationType` is 'UPDATE'
 - The `OperationTime` reflects when the UPDATE statement executed
-- The `Description` contains the message: 'A statement-level DML operation occurred on Students table.'
+- The `Description` contains a message
 
 ---
 
