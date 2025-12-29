@@ -159,11 +159,6 @@ CREATE TABLE Enrollment (
 );
 ```
 
-> **Screenshot:** Enrollment table structure
-
-![Enrollment Table](images/image_4.png)
-
----
 
 ## 8. Marks Management
 
@@ -189,10 +184,6 @@ CREATE TABLE Marks (
     FOREIGN KEY (course_id, dept_id) REFERENCES Course(course_id, department_id)
 );
 ```
-
-> **Screenshot:** Marks table creation
-
-![Marks Table](images/image_3.png)
 
 ---
 
@@ -230,9 +221,6 @@ FROM Reservation
 GROUP BY instructor_id;
 ```
 
-> **Screenshot:** View result in pgAdmin
-
-![View Result](images/image_2.png)
 
 ---
 
