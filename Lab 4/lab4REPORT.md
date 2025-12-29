@@ -105,11 +105,11 @@ SELECT * FROM Student_Audit_Log;
 
 ![Test Output](images/test.png)
 
-**Expected Behavior:**
-- Only **one record** should be inserted into `Student_Audit_Log`
-- The `OperationType` should be 'UPDATE'
-- The `OperationTime` should reflect when the UPDATE statement executed
-- The `Description` should contain the message: 'A statement-level DML operation occurred on Students table.'
+**The Expected Behavior:**
+- Only **one record** is inserted into `Student_Audit_Log`
+- The `OperationType` is 'UPDATE'
+- The `OperationTime` reflects when the UPDATE statement executed
+- The `Description` contains the message: 'A statement-level DML operation occurred on Students table.'
 
 ---
 
