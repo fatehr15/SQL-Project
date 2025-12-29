@@ -223,5 +223,3 @@ COMMIT;
 * **Maintainability:** Centralizing logic in functions makes updates easier.
 
 ---
-
-**Would you like me to create a complex practice exercise based on these functions to test your understanding?**
