@@ -31,7 +31,6 @@ CREATE DATABASE university;
 ```
 
 > **Screenshot:** Database creation in pgAdmin
-
 ![Creating the University Database](images/image_7.png)
 
 ---
