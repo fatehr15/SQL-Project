@@ -1,4 +1,4 @@
-# Database Triggers Lab Report - Lab 4
+#  Lab 4 : Database Triggers Lab Report 
 
 ## Statement-Level Trigger for Student Table Auditing
 
