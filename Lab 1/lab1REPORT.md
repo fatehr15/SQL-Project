@@ -1,11 +1,4 @@
-# Lab Report: Database Schema Creation and Management
-
-## Lab Information
-**Course:** Introduction to Databases  
-**Academic Year:** 2025/2026  
-**Date:** November 30, 2025  
-**Topic:** Data Definition Language (DDL) - Schema Creation and Evolution
-
+# Lab 1: Database Schema Creation and Management
 ---
 
 ## 1. Introduction
