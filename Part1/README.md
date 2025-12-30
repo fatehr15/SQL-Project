@@ -186,7 +186,7 @@ university_db=# SELECT * FROM Student_Audit_Log;
 - Schema evolution (adding Enrollment and Marks tables)
 - Creating views for data aggregation
 
-**Main Files:** `lab1.sql`
+**Main Files:** `Lab 1/lab1.sql`
 
 **Key Queries:**
 ```sql
