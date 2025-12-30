@@ -5,22 +5,27 @@
 ---
 # Database Management Labs - PostgreSQL
 
-A comprehensive series of 4 laboratory exercises covering fundamental to advanced database concepts using PostgreSQL.
+A comprehensive series of 4 laboratory exercises covering fundamental to advanced database concepts using PostgreSQL .
 
-## 📋 Table of Contents
+Instructors
+Dr. Mohamed Cherif Nait-Hamoud & Dr. SAFIA BOURAHLA
 
-- [Overview](#overview)
-- [Prerequisites](#prerequisites)
-- [Database Schema](#database-schema)
-- [Installation & Setup](#installation--setup)
-- [Lab Contents](#lab-contents)
-- [Usage](#usage)
-- [Lab Descriptions](#lab-descriptions)
-- [Key Learning Outcomes](#key-learning-outcomes)
-- [Troubleshooting](#troubleshooting)
-- [Contributing](#contributing)
+These laboratory exercises were completed under the instruction and guidance of our professors as part of the "Introduction to Database" course at the National School in Cyber Security .
 
-## 🎯 Overview
+## Table of Contents
+
+- [Overview](##Overview)
+- [Prerequisites](#Prerequisites)
+- [Database Schema](#Database-schema)
+- [Installation & Setup](#Installation--setup)
+- [Lab Contents](#Lab-contents)
+- [Usage](#Usage)
+- [Lab Descriptions](#Lab-descriptions)
+- [Key Learning Outcomes](#Key-learning-outcomes)
+- [Troubleshooting](#Troubleshooting)
+- [Contributing](#Contributing)
+
+## Overview
 
 This repository contains four progressive SQL laboratory exercises that cover the complete spectrum of database management operations. The labs use a university course reservation system as the domain model, demonstrating real-world database design and implementation.
 
@@ -30,7 +35,7 @@ This repository contains four progressive SQL laboratory exercises that cover th
 - Record student enrollments and grades
 - Audit database changes
 
-## 📚 Prerequisites
+## Prerequisites
 
 ### Required Software
 - PostgreSQL 12.x or higher
@@ -42,7 +47,7 @@ This repository contains four progressive SQL laboratory exercises that cover th
 - Understanding of relational database concepts
 - Familiarity with command-line interfaces
 
-## 🗄️ Database Schema
+## Database Schema
 
 The database consists of 8 main tables:
 
@@ -61,7 +66,7 @@ The database consists of 8 main tables:
 ### Audit Tables (Lab 4)
 9. **Student_Audit_Log** - Tracks changes to Student table
 
-## 🚀 Installation & Setup
+## Installation & Setup
 
 ### 1. Install PostgreSQL
 
@@ -109,7 +114,7 @@ psql -U postgres -d university_db -f lab3.sql
 psql -U postgres -d university_db -f "lab 4.sql"
 ```
 
-## 📁 Lab Contents
+## Lab Contents
 
 ```
 .
@@ -134,7 +139,7 @@ psql -U postgres -d university_db -f "lab 4.sql"
 └── README.md
 ```
 
-## 💻 Usage
+## Usage
 
 ### Running Individual Labs
 
@@ -331,7 +336,7 @@ SELECT * FROM Student_Audit_Log;
 
 **Main Files:** `Lab 4/lab 4.sql`
 
-## 🎓 Key Learning Outcomes
+## Key Learning Outcomes
 
 After completing these labs, you will be able to:
 
@@ -418,7 +423,7 @@ SELECT * FROM pg_trigger;
 \sf function_name
 ```
 
-## 📊 Sample Data Overview
+## Sample Data Overview
 
 The database includes:
 - **4 Departments:** SADS, CCS, GRC, INS
@@ -428,7 +433,7 @@ The database includes:
 - **4 Courses:** Including Databases, C++, Advanced DBs, English
 - **21 Reservations:** Spanning multiple dates and time slots
 
-## 🔐 Best Practices Demonstrated
+## Best Practices Demonstrated
 
 1. **Data Integrity:**
    - Primary and foreign key constraints
@@ -449,14 +454,14 @@ The database includes:
    - Views for frequently used queries
    - Efficient query design
 
-## 📝 Additional Resources
+## Additional Resources
 
 - [PostgreSQL Official Documentation](https://www.postgresql.org/docs/)
 - [PostgreSQL Tutorial](https://www.postgresqltutorial.com/)
 - [SQL Style Guide](https://www.sqlstyle.guide/)
 - [Database Normalization](https://en.wikipedia.org/wiki/Database_normalization)
 
-## 🤝 Contributing
+## Contributing
 
 Contributions are welcome! If you find any issues or have suggestions for improvements:
 
@@ -467,7 +472,7 @@ Contributions are welcome! If you find any issues or have suggestions for improv
 5. Create a Pull Request
 
 
-## 📞 Support
+## Support
 
 For questions or issues:
 - Review PostgreSQL documentation
