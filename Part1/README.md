@@ -130,6 +130,7 @@ psql -U postgres -d university_db -f "lab 4.sql"
 │   ├── images
 │   ├── lab4REPORT.md
 │   └── Lab4.sql
+├── PostgerLabs.pdf
 └── README.md
 ```
 
