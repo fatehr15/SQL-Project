@@ -215,7 +215,7 @@ CREATE VIEW View_Res AS ...;
 - GROUP BY and HAVING clauses
 - ORDER BY sorting
 
-**Main Files:** `Lab2.sql`
+**Main Files:** `Lab 2/Lab2.sql`
 
 **Sample Queries:**
 - Query 1-5: Basic selection and filtering
@@ -274,7 +274,7 @@ INSERT INTO Reservation VALUES (104, ...); -- Corrected
 COMMIT;
 ```
 
-**Main Files:** `lab3.sql`
+**Main Files:** `Lab 3/lab3.sql`
 
 ---
 
@@ -329,7 +329,7 @@ UPDATE Student SET City = 'TestCity' WHERE City IS NULL;
 SELECT * FROM Student_Audit_Log;
 ```
 
-**Main Files:** `lab 4.sql`
+**Main Files:** `Lab 4/lab 4.sql`
 
 ## 🎓 Key Learning Outcomes
 
