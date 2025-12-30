@@ -1,4 +1,4 @@
-# NSCS Database Project Report
+# NSCS Database Project Report - Part 1
 
 **Students:** Raid Kahlerras (A3), Hassani Fateh (A3)
 
