@@ -179,7 +179,7 @@ university_db=# UPDATE Student SET City = 'TestCity' WHERE City IS NULL;
 university_db=# SELECT * FROM Student_Audit_Log;
 ```
 
-## 📖 Lab Descriptions
+## Lab Descriptions
 
 ### Lab 1: Data Definition Language (DDL)
 **Focus:** Database schema creation and data population
