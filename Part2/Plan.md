@@ -1,4 +1,5 @@
-## Plan for Project Part 2 : Database Design and Schema Extension
+## Plan for Project Part 2 : 
+### Database Design and Schema Extension
 
 The first part focuses on **ERD revision, normalization, and extending the database schema** using PostgreSQL.
 
