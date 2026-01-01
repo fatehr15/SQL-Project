@@ -47,3 +47,8 @@ The process to build the application follows the required feature list:
 | 7. Auditing Implementation | **Audit Sub-menu** | Implement an "Audit" sub-menu to allow users to audit data manipulation operations (`INSERT`, `UPDATE`, and `DELETE`) on student marks and student attendance. This requires displaying information from the audit table, including `OperationType` (e.g., 'INSERT'), `OperationTime` (current timestamp), and enumeration attributes. (The sources show that a `Student_Audit_Log` table and trigger functions are required for this,). |
 
 ***
+
+
+## Road Map :
+
+!(MindMap.png)
