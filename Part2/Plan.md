@@ -51,4 +51,4 @@ The process to build the application follows the required feature list:
 
 ## Road Map :
 
-!(MindMap.png)
+!(./MindMap.png)
