@@ -12,18 +12,7 @@ import os
 class DatabaseConnection:
     """Manages PostgreSQL database connections and cursors."""
     
-    def __init__(self, host='localhost', port=5432, database='university', 
-                 user='postgres', password='postgres'):
-        """
-        Initialize database connection parameters.
-        
-        Args:
-            host: Database host (default: localhost)
-            port: Database port (default: 5432)
-            database: Database name (default: university)
-            user: Database user (default: postgres)
-            password: Database password (default: postgres)
-        """
+    def __init__(self, host='localhost', port=5432, database='university', user='postgres', password=' '):
         self.host = host
         self.port = port
         self.database = database
@@ -131,6 +120,15 @@ def get_db_connection():
     Returns:
         DatabaseConnection: Configured database connection object
     """
+    # If demo mode is enabled via environment variable, return the SQLite demo connection
+    if os.getenv('USE_DEMO_DB', '0') == '1':
+        try:
+            from db_connection_demo import get_demo_db_connection
+            return get_demo_db_connection()
+        except Exception:
+            # Fall back to PostgreSQL connection if demo import fails
+            pass
+
     # You can modify these defaults or load from environment variables
     # Default database name matches Part 1: university_db
     return DatabaseConnection(
@@ -138,6 +136,6 @@ def get_db_connection():
         port=int(os.getenv('DB_PORT', 5432)),
         database=os.getenv('DB_NAME', 'university_db'),  # Changed to match Part 1 database
         user=os.getenv('DB_USER', 'postgres'),
-        password=os.getenv('DB_PASSWORD', 'postgres')
+        password=os.getenv('DB_PASSWORD', '')  # Empty password for PostgreSQL
     )
 

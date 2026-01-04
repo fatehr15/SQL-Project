@@ -9,6 +9,9 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont, QIcon
 from db_connection import get_db_connection
+from db_connection_demo import get_demo_db_connection
+import sys
+import os
 from crud_window import CRUDWindow
 from reservation_window import ReservationWindow
 from marks_attendance_window import MarksAttendanceWindow
@@ -20,8 +23,9 @@ from audit_window import AuditWindow
 class MainWindow(QMainWindow):
     """Main application window with navigation menu."""
     
-    def __init__(self):
+    def __init__(self, use_demo=False):
         super().__init__()
+        self.use_demo = use_demo
         self.db_connection = None
         self.init_ui()
         self.test_connection()
@@ -150,14 +154,35 @@ class MainWindow(QMainWindow):
     def test_connection(self):
         """Test database connection on startup."""
         try:
-            self.db_connection = get_db_connection()
-            self.db_connection.connect()
-            self.statusBar().showMessage('Database connected successfully')
+            if self.use_demo:
+                # Ensure other modules will return demo connections
+                os.environ['USE_DEMO_DB'] = '1'
+                from db_connection_demo import get_demo_db_connection
+                self.db_connection = get_demo_db_connection()
+                self.db_connection.connect()
+                self.statusBar().showMessage('Demo database connected successfully (SQLite)')
+            else:
+                self.db_connection = get_db_connection()
+                self.db_connection.connect()
+                self.statusBar().showMessage('Database connected successfully')
         except Exception as e:
-            QMessageBox.warning(self, 'Connection Error', 
-                              f'Failed to connect to database:\n{str(e)}\n\n'
-                              'Please check your database configuration in db_connection.py')
-            self.statusBar().showMessage('Database connection failed')
+            if not self.use_demo:
+                reply = QMessageBox.question(self, 'Connection Error', 
+                                            f'Failed to connect to PostgreSQL database:\n{str(e)}\n\n'
+                                            'Would you like to use the demo database (SQLite) instead?\n'
+                                            'This requires no setup and works immediately.',
+                                            QMessageBox.Yes | QMessageBox.No)
+                if reply == QMessageBox.Yes:
+                    # Switch to demo mode
+                    self.use_demo = True
+                    os.environ['USE_DEMO_DB'] = '1'
+                    self.test_connection()  # Retry with demo
+                else:
+                    self.statusBar().showMessage('Database connection failed')
+            else:
+                QMessageBox.warning(self, 'Connection Error', 
+                                  f'Failed to connect to demo database:\n{str(e)}')
+                self.statusBar().showMessage('Database connection failed')
     
     def open_crud_operations(self):
         """Open CRUD Operations sub-menu."""
@@ -203,7 +228,20 @@ def main():
     # Set application style
     app.setStyle('Fusion')
     
-    window = MainWindow()
+    # Check for demo mode argument
+    use_demo = '--demo' in sys.argv or '-d' in sys.argv
+    
+    if use_demo:
+        # Setup demo database if needed
+        try:
+            # Signal demo mode to the connection factory
+            os.environ['USE_DEMO_DB'] = '1'
+            from setup_demo_database import create_demo_database
+            create_demo_database()
+        except:
+            pass
+    
+    window = MainWindow(use_demo=use_demo)
     window.show()
     
     sys.exit(app.exec_())
