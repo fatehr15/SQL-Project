@@ -10,7 +10,6 @@ from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont
 from db_connection import get_db_connection
-import psycopg2
 import os
 
 

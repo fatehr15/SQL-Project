@@ -3,7 +3,6 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QPushButton, QLabel, QMessageBox)
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont
-import sqlite3
 import types
 
 # add lightweight stub modules so import-time get_db_connection / get_demo_db_connection
@@ -389,15 +388,6 @@ def main():
     app.setStyle('Fusion')
     
     use_demo = '--demo' in sys.argv or '-d' in sys.argv
-    
-    if use_demo:
-        try:
-            from setup_demo_database import create_demo_database
-            create_demo_database()
-        except ImportError:
-            print("Warning: setup_demo_database module not found.")
-        except Exception as e:
-            print(f"Error setting up demo DB: {e}")
     
     window = MainWindow(use_demo=use_demo)
     window.show()
