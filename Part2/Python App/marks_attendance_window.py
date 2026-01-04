@@ -11,6 +11,7 @@ from PyQt5.QtCore import Qt, QDate
 from PyQt5.QtGui import QFont
 from db_connection import get_db_connection
 import psycopg2
+import os
 
 
 class MarksAttendanceWindow(QMainWindow):
@@ -31,30 +32,49 @@ class MarksAttendanceWindow(QMainWindow):
         """Ensure Attendance table exists, create if not."""
         try:
             cursor = self.db_connection.get_cursor()
-            # Check if table exists
-            cursor.execute("""
-                SELECT EXISTS (
-                    SELECT FROM information_schema.tables 
-                    WHERE table_schema = 'public' 
-                    AND table_name = 'attendance'
-                )
-            """)
-            if not cursor.fetchone()[0]:
-                # Create attendance table
+            # Check if table exists (Postgres vs SQLite)
+            if os.getenv('USE_DEMO_DB', '0') == '1':
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='Attendance'")
+                exists = cursor.fetchone() is not None
+                if not exists:
+                    # Create attendance table (SQLite-compatible)
+                    cursor.execute("""
+                        CREATE TABLE Attendance (
+                            attendance_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            student_id INTEGER NOT NULL,
+                            course_id INTEGER NOT NULL,
+                            dept_id INTEGER NOT NULL,
+                            attendance_date DATE NOT NULL DEFAULT (date('now')),
+                            status VARCHAR(20) NOT NULL,
+                            notes TEXT
+                        )
+                    """)
+                    self.db_connection.connection.commit()
+            else:
+                # Postgres: check via information_schema
                 cursor.execute("""
-                    CREATE TABLE Attendance (
-                        attendance_id SERIAL PRIMARY KEY,
-                        student_id INT NOT NULL,
-                        course_id INT NOT NULL,
-                        dept_id INT NOT NULL,
-                        attendance_date DATE NOT NULL DEFAULT CURRENT_DATE,
-                        status VARCHAR(20) NOT NULL CHECK (status IN ('Present', 'Absent', 'Late', 'Excused')),
-                        notes TEXT,
-                        FOREIGN KEY(student_id) REFERENCES Student(student_id),
-                        FOREIGN KEY(course_id, dept_id) REFERENCES Course(course_id, department_id)
+                    SELECT EXISTS (
+                        SELECT FROM information_schema.tables 
+                        WHERE table_schema = 'public' 
+                        AND table_name = 'attendance'
                     )
                 """)
-                self.db_connection.connection.commit()
+                if not cursor.fetchone()[0]:
+                    # Create attendance table
+                    cursor.execute("""
+                        CREATE TABLE Attendance (
+                            attendance_id SERIAL PRIMARY KEY,
+                            student_id INT NOT NULL,
+                            course_id INT NOT NULL,
+                            dept_id INT NOT NULL,
+                            attendance_date DATE NOT NULL DEFAULT CURRENT_DATE,
+                            status VARCHAR(20) NOT NULL CHECK (status IN ('Present', 'Absent', 'Late', 'Excused')),
+                            notes TEXT,
+                            FOREIGN KEY(student_id) REFERENCES Student(student_id),
+                            FOREIGN KEY(course_id, dept_id) REFERENCES Course(course_id, department_id)
+                        )
+                    """)
+                    self.db_connection.connection.commit()
         except Exception as e:
             print(f"Note: Attendance table check/create: {e}")
     

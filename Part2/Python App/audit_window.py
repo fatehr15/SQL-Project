@@ -11,6 +11,7 @@ from PyQt5.QtCore import Qt, QDate, QDateTime
 from PyQt5.QtGui import QFont
 from db_connection import get_db_connection
 import psycopg2
+import os
 
 
 class AuditWindow(QMainWindow):
@@ -29,30 +30,52 @@ class AuditWindow(QMainWindow):
         """Create audit tables for Marks and Attendance if they don't exist."""
         try:
             cursor = self.db_connection.get_cursor()
-            
-            # Create Marks_Audit_Log table
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS Marks_Audit_Log (
-                    LogID SERIAL PRIMARY KEY,
-                    OperationType VARCHAR(50) NOT NULL,
-                    OperationTime TIMESTAMP NOT NULL,
-                    Description TEXT,
-                    RowsAffected INTEGER DEFAULT 0
-                )
-            """)
-            
-            # Create Attendance_Audit_Log table
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS Attendance_Audit_Log (
-                    LogID SERIAL PRIMARY KEY,
-                    OperationType VARCHAR(50) NOT NULL,
-                    OperationTime TIMESTAMP NOT NULL,
-                    Description TEXT,
-                    RowsAffected INTEGER DEFAULT 0
-                )
-            """)
-            
-            self.db_connection.connection.commit()
+            # Create audit tables (use SQLite-compatible definitions when in demo mode)
+            if os.getenv('USE_DEMO_DB', '0') == '1':
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS Marks_Audit_Log (
+                        LogID INTEGER PRIMARY KEY AUTOINCREMENT,
+                        OperationType VARCHAR(50) NOT NULL,
+                        OperationTime TEXT NOT NULL,
+                        Description TEXT,
+                        RowsAffected INTEGER DEFAULT 0
+                    )
+                """)
+
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS Attendance_Audit_Log (
+                        LogID INTEGER PRIMARY KEY AUTOINCREMENT,
+                        OperationType VARCHAR(50) NOT NULL,
+                        OperationTime TEXT NOT NULL,
+                        Description TEXT,
+                        RowsAffected INTEGER DEFAULT 0
+                    )
+                """)
+                self.db_connection.connection.commit()
+            else:
+                # Create Marks_Audit_Log table
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS Marks_Audit_Log (
+                        LogID SERIAL PRIMARY KEY,
+                        OperationType VARCHAR(50) NOT NULL,
+                        OperationTime TIMESTAMP NOT NULL,
+                        Description TEXT,
+                        RowsAffected INTEGER DEFAULT 0
+                    )
+                """)
+
+                # Create Attendance_Audit_Log table
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS Attendance_Audit_Log (
+                        LogID SERIAL PRIMARY KEY,
+                        OperationType VARCHAR(50) NOT NULL,
+                        OperationTime TIMESTAMP NOT NULL,
+                        Description TEXT,
+                        RowsAffected INTEGER DEFAULT 0
+                    )
+                """)
+
+                self.db_connection.connection.commit()
         except Exception as e:
             print(f"Note: Audit tables setup: {e}")
     
@@ -60,8 +83,12 @@ class AuditWindow(QMainWindow):
         """Create trigger functions and triggers for Marks and Attendance tables."""
         try:
             cursor = self.db_connection.get_cursor()
-            
-            # Function for Marks audit
+            # Triggers and functions are Postgres-specific; for demo mode skip creating PL/pgSQL functions
+            if os.getenv('USE_DEMO_DB', '0') == '1':
+                # Skip function/trigger creation on SQLite demo — triggers are optional for demo
+                return
+
+            # Function for Marks audit (Postgres)
             cursor.execute("""
                 CREATE OR REPLACE FUNCTION audit_marks_changes_statement()
                 RETURNS TRIGGER 
@@ -79,7 +106,7 @@ class AuditWindow(QMainWindow):
                 END;
                 $$;
             """)
-            
+
             # Function for Attendance audit
             cursor.execute("""
                 CREATE OR REPLACE FUNCTION audit_attendance_changes_statement()
@@ -98,7 +125,7 @@ class AuditWindow(QMainWindow):
                 END;
                 $$;
             """)
-            
+
             # Drop existing triggers if they exist (to avoid errors on recreation)
             cursor.execute("""
                 DROP TRIGGER IF EXISTS trg_audit_marks_statement ON Marks;
@@ -106,7 +133,7 @@ class AuditWindow(QMainWindow):
             cursor.execute("""
                 DROP TRIGGER IF EXISTS trg_audit_attendance_statement ON Attendance;
             """)
-            
+
             # Create trigger for Marks table
             cursor.execute("""
                 CREATE TRIGGER trg_audit_marks_statement 
@@ -114,7 +141,7 @@ class AuditWindow(QMainWindow):
                 FOR EACH STATEMENT 
                 EXECUTE FUNCTION audit_marks_changes_statement();
             """)
-            
+
             # Create trigger for Attendance table
             cursor.execute("""
                 CREATE TRIGGER trg_audit_attendance_statement 
@@ -122,7 +149,7 @@ class AuditWindow(QMainWindow):
                 FOR EACH STATEMENT 
                 EXECUTE FUNCTION audit_attendance_changes_statement();
             """)
-            
+
             self.db_connection.connection.commit()
         except Exception as e:
             print(f"Note: Triggers setup: {e}")

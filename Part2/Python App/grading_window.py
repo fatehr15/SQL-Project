@@ -11,6 +11,7 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont
 from db_connection import get_db_connection
 import psycopg2
+import os
 
 
 class GradingWindow(QMainWindow):
@@ -29,25 +30,34 @@ class GradingWindow(QMainWindow):
         """Ensure Course table has Passing_Grade column, add if not."""
         try:
             cursor = self.db_connection.get_cursor()
-            # Check if column exists
-            cursor.execute("""
-                SELECT EXISTS (
-                    SELECT FROM information_schema.columns 
-                    WHERE table_schema = 'public' 
-                    AND table_name = 'course' 
-                    AND column_name = 'passing_grade'
-                )
-            """)
-            if not cursor.fetchone()[0]:
-                # Add passing_grade column with default value
+            # Check if column exists (Postgres vs SQLite)
+            if os.getenv('USE_DEMO_DB', '0') == '1':
+                cursor.execute("PRAGMA table_info('Course')")
+                cols = [row[1] for row in cursor.fetchall()]
+                if 'passing_grade' not in cols:
+                    cursor.execute("ALTER TABLE Course ADD COLUMN passing_grade REAL DEFAULT 10.0")
+                    cursor.execute("UPDATE Course SET passing_grade = 10.0 WHERE passing_grade IS NULL")
+                    self.db_connection.connection.commit()
+            else:
+                # Check if column exists
                 cursor.execute("""
-                    ALTER TABLE Course 
-                    ADD COLUMN passing_grade NUMERIC(4,2) DEFAULT 10.0 
-                    CHECK (passing_grade >= 0 AND passing_grade <= 20)
+                    SELECT EXISTS (
+                        SELECT FROM information_schema.columns 
+                        WHERE table_schema = 'public' 
+                        AND table_name = 'course' 
+                        AND column_name = 'passing_grade'
+                    )
                 """)
-                # Update existing records with default passing grade
-                cursor.execute("UPDATE Course SET passing_grade = 10.0 WHERE passing_grade IS NULL")
-                self.db_connection.connection.commit()
+                if not cursor.fetchone()[0]:
+                    # Add passing_grade column with default value
+                    cursor.execute("""
+                        ALTER TABLE Course 
+                        ADD COLUMN passing_grade NUMERIC(4,2) DEFAULT 10.0 
+                        CHECK (passing_grade >= 0 AND passing_grade <= 20)
+                    """)
+                    # Update existing records with default passing grade
+                    cursor.execute("UPDATE Course SET passing_grade = 10.0 WHERE passing_grade IS NULL")
+                    self.db_connection.connection.commit()
         except Exception as e:
             print(f"Note: Passing grade column check/create: {e}")
     

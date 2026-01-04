@@ -39,6 +39,34 @@ class DemoDatabaseConnection:
         try:
             self.connection = sqlite3.connect(str(self.db_path))
             self.connection.row_factory = sqlite3.Row  # Enable column access by name
+            # Register helper functions for compatibility with Postgres-based code
+            try:
+                # CheckReservation(building, room, date, start_time, end_time)
+                def _check_reservation(building, roomno, reserv_date, start_time, end_time):
+                    cur = self.connection.cursor()
+                    # Normalize inputs to strings
+                    b = building
+                    r = roomno
+                    d = reserv_date
+                    s = start_time
+                    e = end_time
+                    # Count overlapping reservations
+                    q = """
+                        SELECT COUNT(*) FROM Reservation
+                        WHERE Building = ? AND RoomNo = ? AND Reserv_Date = ?
+                          AND NOT (End_Time <= ? OR Start_Time >= ?)
+                    """
+                    cur.execute(q, (b, r, d, s, e))
+                    row = cur.fetchone()
+                    return row[0] if row is not None else 0
+
+                # Register with SQLite (name matching Postgres function)
+                try:
+                    self.connection.create_function('CheckReservation', 5, _check_reservation)
+                except Exception:
+                    pass
+            except Exception:
+                pass
             return self.connection
         except Exception as e:
             print(f"Error connecting to demo database: {e}")
@@ -55,8 +83,49 @@ class DemoDatabaseConnection:
             self.connect()
         
         if self.cursor is None:
-            self.cursor = self.connection.cursor()
-        
+            raw = self.connection.cursor()
+
+            # Wrapper to adapt Postgres-style SQL to SQLite and handle '%s' placeholders
+            class CursorWrapper:
+                def __init__(self, demo_conn, raw_cursor):
+                    self._demo = demo_conn
+                    self._cur = raw_cursor
+
+                def execute(self, query, params=None):
+                    q = self._demo._adapt_query(query)
+                    if params is not None:
+                        q = q.replace('%s', '?')
+                    if params is not None:
+                        return self._cur.execute(q, params)
+                    else:
+                        return self._cur.execute(q)
+
+                def executemany(self, query, seq_of_params):
+                    q = self._demo._adapt_query(query)
+                    q = q.replace('%s', '?')
+                    return self._cur.executemany(q, seq_of_params)
+
+                def executescript(self, script):
+                    s = self._demo._adapt_query(script)
+                    return self._cur.executescript(s)
+
+                def fetchone(self):
+                    return self._cur.fetchone()
+
+                def fetchall(self):
+                    return self._cur.fetchall()
+
+                def close(self):
+                    try:
+                        return self._cur.close()
+                    finally:
+                        pass
+
+                def __getattr__(self, name):
+                    return getattr(self._cur, name)
+
+            self.cursor = CursorWrapper(self, raw)
+
         return self.cursor
     
     def execute_query(self, query, params=None):
