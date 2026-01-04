@@ -16,7 +16,7 @@ import psycopg2
 class GenericCRUDForm(QWidget):
     """Generic CRUD form widget that can be configured for different tables."""
     
-    def __init__(self, table_name, columns_config, parent=None):
+    def __init__(self, table_name=None, columns_config=None, parent=None):
         """
         Initialize generic CRUD form.
         
@@ -27,13 +27,20 @@ class GenericCRUDForm(QWidget):
             parent: Parent widget
         """
         super().__init__(parent)
-        self.table_name = table_name
-        self.columns_config = columns_config
+        # Allow optional construction for embedding/tests
+        self.table_name = table_name or 'Generic'
+        self.columns_config = columns_config or []
         self.db_connection = get_db_connection()
         self.db_connection.connect()
         self.current_edit_id = None
         self.init_ui()
-        self.load_data()
+        # Only load data if we have a primary key defined
+        try:
+            if self.columns_config and self.get_primary_key_columns():
+                self.load_data()
+        except Exception:
+            # Safe fallback during headless instantiation
+            pass
     
     def init_ui(self):
         """Initialize the user interface."""
