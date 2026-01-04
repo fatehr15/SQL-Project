@@ -12,12 +12,13 @@ import os
 class DatabaseConnection:
     """Manages PostgreSQL database connections and cursors."""
     
-    def __init__(self, host='localhost', port=5432, database='university', user='postgres', password=' '):
+    def __init__(self, host='localhost', port=5432, database='university', user='postgres', password=''):
         self.host = host
         self.port = port
         self.database = database
         self.user = user
-        self.password = password
+        # Normalize empty passwords to empty string
+        self.password = '' if password is None else str(password)
         self.connection = None
         self.cursor = None
     
@@ -32,13 +33,17 @@ class DatabaseConnection:
             psycopg2.Error: If connection fails
         """
         try:
-            self.connection = psycopg2.connect(
-                host=self.host,
-                port=self.port,
-                database=self.database,
-                user=self.user,
-                password=self.password
-            )
+            connect_kwargs = {
+                'host': self.host,
+                'port': self.port,
+                'database': self.database,
+                'user': self.user,
+            }
+            # Only include password if it's non-empty; some PostgreSQL setups fail when given empty password
+            if self.password:
+                connect_kwargs['password'] = self.password
+
+            self.connection = psycopg2.connect(**connect_kwargs)
             self.connection.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
             return self.connection
         except psycopg2.Error as e:
@@ -136,6 +141,6 @@ def get_db_connection():
         port=int(os.getenv('DB_PORT', 5432)),
         database=os.getenv('DB_NAME', 'university_db'),  # Changed to match Part 1 database
         user=os.getenv('DB_USER', 'postgres'),
-        password=os.getenv('DB_PASSWORD', '')  # Empty password for PostgreSQL
+        password=os.getenv('DB_PASSWORD', ' ')  # Empty password for PostgreSQL
     )
 
