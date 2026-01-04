@@ -18,7 +18,13 @@ class ReportingWindow(QMainWindow):
     
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.db_connection = get_db_connection()
+        # Try to get connection from parent (MainWindow) if available
+        if parent and hasattr(parent, 'db_connection') and parent.db_connection is not None:
+            self.db_connection = parent.db_connection
+        else:
+            self.db_connection = get_db_connection()
+            if self.db_connection is None:
+                raise Exception("No database connection available. Please check your database setup.")
         self.db_connection.connect()
         self.init_ui()
         self.load_dropdowns()
@@ -53,7 +59,7 @@ class ReportingWindow(QMainWindow):
             if not cursor.fetchone()[0]:
                 cursor.execute("ALTER TABLE Student ADD COLUMN section_id INTEGER DEFAULT 1")
             
-            self.db_connection.connection.commit()
+            self.db_connection.commit()
         except Exception as e:
             print(f"Note: Student columns check/create: {e}")
     
@@ -81,7 +87,7 @@ class ReportingWindow(QMainWindow):
                 cursor = self.db_connection.get_cursor()
                 # Execute the entire script
                 cursor.execute(sql_script)
-                self.db_connection.connection.commit()
+                self.db_connection.commit()
             else:
                 # If file not found, create functions directly
                 self.create_functions_directly()

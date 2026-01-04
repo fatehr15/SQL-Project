@@ -19,7 +19,13 @@ class GradingWindow(QMainWindow):
     
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.db_connection = get_db_connection()
+        # Try to get connection from parent (MainWindow) if available
+        if parent and hasattr(parent, 'db_connection') and parent.db_connection is not None:
+            self.db_connection = parent.db_connection
+        else:
+            self.db_connection = get_db_connection()
+            if self.db_connection is None:
+                raise Exception("No database connection available. Please check your database setup.")
         self.db_connection.connect()
         self.passing_grade = 10.0  # Default passing grade (can be overridden per course)
         self.init_ui()
@@ -37,7 +43,7 @@ class GradingWindow(QMainWindow):
                 if 'passing_grade' not in cols:
                     cursor.execute("ALTER TABLE Course ADD COLUMN passing_grade REAL DEFAULT 10.0")
                     cursor.execute("UPDATE Course SET passing_grade = 10.0 WHERE passing_grade IS NULL")
-                    self.db_connection.connection.commit()
+                    self.db_connection.commit()
             else:
                 # Check if column exists
                 cursor.execute("""
@@ -57,7 +63,7 @@ class GradingWindow(QMainWindow):
                     """)
                     # Update existing records with default passing grade
                     cursor.execute("UPDATE Course SET passing_grade = 10.0 WHERE passing_grade IS NULL")
-                    self.db_connection.connection.commit()
+                    self.db_connection.commit()
         except Exception as e:
             print(f"Note: Passing grade column check/create: {e}")
     

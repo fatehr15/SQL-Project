@@ -18,7 +18,13 @@ class ReservationWindow(QMainWindow):
     
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.db_connection = get_db_connection()
+        # Try to get connection from parent (MainWindow) if available
+        if parent and hasattr(parent, 'db_connection') and parent.db_connection is not None:
+            self.db_connection = parent.db_connection
+        else:
+            self.db_connection = get_db_connection()
+            if self.db_connection is None:
+                raise Exception("No database connection available. Please check your database setup.")
         self.db_connection.connect()
         self.init_ui()
         self.load_data()
@@ -158,10 +164,10 @@ class ReservationWindow(QMainWindow):
             
             # Load courses
             cursor.execute("""
-                SELECT c.Course_ID, c.Department_ID, c.name, d.name as dept_name
+                SELECT c.Course_ID, c.Dept_ID as Department_ID, c.Course_Name as name, d.Dept_Name as dept_name
                 FROM Course c
-                JOIN Department d ON c.Department_ID = d.Department_id
-                ORDER BY d.name, c.name
+                JOIN Department d ON c.Dept_ID = d.Dept_ID
+                ORDER BY d.Dept_Name, c.Course_Name
             """)
             courses = cursor.fetchall()
             self.course_combo.clear()
@@ -171,10 +177,10 @@ class ReservationWindow(QMainWindow):
             
             # Load instructors
             cursor.execute("""
-                SELECT i.Instructor_ID, i.Last_Name, i.First_Name, d.name as dept_name
+                SELECT i.Instructor_ID, i.Lname as Last_Name, i.Fname as First_Name, d.Dept_Name as dept_name
                 FROM Instructor i
-                JOIN Department d ON i.Department_ID = d.Department_id
-                ORDER BY i.Last_Name, i.First_Name
+                JOIN Department d ON i.Dept_ID = d.Dept_ID
+                ORDER BY i.Lname, i.Fname
             """)
             instructors = cursor.fetchall()
             self.instructor_combo.clear()
@@ -319,7 +325,7 @@ class ReservationWindow(QMainWindow):
                 self.hours_number.value()
             ))
             
-            self.db_connection.connection.commit()
+            self.db_connection.commit()
             
             QMessageBox.information(self, 'Success', 'Reservation created successfully!')
             self.clear_form()
@@ -345,12 +351,12 @@ class ReservationWindow(QMainWindow):
         try:
             query = """
                 SELECT r.Reservation_ID, r.Building, r.RoomNo, 
-                       c.name as Course_Name, d.name as Department_Name,
-                       i.Last_Name || ', ' || i.First_Name as Instructor_Name,
+                       c.Course_Name, d.Dept_Name as Department_Name,
+                       i.Lname || ', ' || i.Fname as Instructor_Name,
                        r.Reserv_Date, r.Start_Time, r.End_Time, r.Hours_Number
                 FROM Reservation r
-                JOIN Course c ON r.Course_ID = c.Course_ID AND r.Department_ID = c.Department_ID
-                JOIN Department d ON r.Department_ID = d.Department_id
+                JOIN Course c ON r.Course_ID = c.Course_ID AND r.Department_ID = c.Dept_ID
+                JOIN Department d ON r.Department_ID = d.Dept_ID
                 JOIN Instructor i ON r.Instructor_ID = i.Instructor_ID
                 ORDER BY r.Reserv_Date DESC, r.Start_Time
             """

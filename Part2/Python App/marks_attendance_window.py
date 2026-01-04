@@ -19,7 +19,13 @@ class MarksAttendanceWindow(QMainWindow):
     
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.db_connection = get_db_connection()
+        # Try to get connection from parent (MainWindow) if available
+        if parent and hasattr(parent, 'db_connection') and parent.db_connection is not None:
+            self.db_connection = parent.db_connection
+        else:
+            self.db_connection = get_db_connection()
+            if self.db_connection is None:
+                raise Exception("No database connection available. Please check your database setup.")
         self.db_connection.connect()
         self.current_mark_id = None
         self.init_ui()
@@ -49,7 +55,7 @@ class MarksAttendanceWindow(QMainWindow):
                             notes TEXT
                         )
                     """)
-                    self.db_connection.connection.commit()
+                    self.db_connection.commit()
             else:
                 # Postgres: check via information_schema
                 cursor.execute("""
@@ -74,7 +80,7 @@ class MarksAttendanceWindow(QMainWindow):
                             FOREIGN KEY(course_id, dept_id) REFERENCES Course(course_id, department_id)
                         )
                     """)
-                    self.db_connection.connection.commit()
+                    self.db_connection.commit()
         except Exception as e:
             print(f"Note: Attendance table check/create: {e}")
     
@@ -314,7 +320,7 @@ class MarksAttendanceWindow(QMainWindow):
                 VALUES (%s, %s, %s, %s, %s::date)
             """
             cursor.execute(query, (student_id, course_id, dept_id, mark_value, mark_date))
-            self.db_connection.connection.commit()
+            self.db_connection.commit()
             
             QMessageBox.information(self, 'Success', 'Mark added successfully!')
             self.clear_marks_form()
@@ -346,7 +352,7 @@ class MarksAttendanceWindow(QMainWindow):
                 WHERE mark_id = %s
             """
             cursor.execute(query, (mark_value, mark_date, self.current_mark_id))
-            self.db_connection.connection.commit()
+            self.db_connection.commit()
             
             if cursor.rowcount > 0:
                 QMessageBox.information(self, 'Success', 'Mark updated successfully!')
@@ -467,7 +473,7 @@ class MarksAttendanceWindow(QMainWindow):
                 VALUES (%s, %s, %s, %s::date, %s, %s)
             """
             cursor.execute(query, (student_id, course_id, dept_id, attendance_date, status, notes))
-            self.db_connection.connection.commit()
+            self.db_connection.commit()
             
             QMessageBox.information(self, 'Success', 'Attendance recorded successfully!')
             self.clear_attendance_form()

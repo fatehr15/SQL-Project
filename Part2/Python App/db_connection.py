@@ -97,6 +97,16 @@ class DatabaseConnection:
             print(f"Error executing query: {e}")
             raise
     
+    def commit(self):
+        """Commit the current transaction."""
+        if self.connection and not self.connection.closed:
+            self.connection.commit()
+    
+    def rollback(self):
+        """Rollback the current transaction."""
+        if self.connection and not self.connection.closed:
+            self.connection.rollback()
+    
     def close(self):
         """Close database connection and cursor."""
         if self.cursor:
@@ -121,12 +131,29 @@ class DatabaseConnection:
 def get_db_connection():
     """
     Get a default database connection instance.
+    Loads settings from config file if available, otherwise uses environment variables or defaults.
     
     Returns:
         DatabaseConnection: Configured database connection object
     """
-    # If demo mode is enabled via environment variable, return the SQLite demo connection
-    if os.getenv('USE_DEMO_DB', '0') == '1':
+    import json
+    from pathlib import Path
+    
+    config_file = Path(__file__).parent / "db_config.json"
+    settings = {}
+    
+    # Load from config file if it exists
+    if config_file.exists():
+        try:
+            with open(config_file, 'r') as f:
+                settings = json.load(f)
+        except Exception:
+            pass
+    
+    # Check if demo mode is requested
+    use_demo = settings.get('use_demo', False) or os.getenv('USE_DEMO_DB', '0') == '1'
+    
+    if use_demo:
         try:
             from db_connection_demo import get_demo_db_connection
             return get_demo_db_connection()
@@ -134,15 +161,12 @@ def get_db_connection():
             # Fall back to PostgreSQL connection if demo import fails
             pass
 
-    # You can modify these defaults or load from environment variables
-    # Default database name matches Part 1: university_db
+    # Use settings from config file, environment variables, or defaults
     return DatabaseConnection(
-        host=os.getenv('DB_HOST', 'localhost'),
-        port=int(os.getenv('DB_PORT', 5432)),
-        database=os.getenv('DB_NAME', 'university_db'),  # Changed to match Part 1 database
-        user=os.getenv('DB_USER', 'postgres'),
-        # Do NOT default to a space — require explicit DB_PASSWORD if the password is a literal space
-        # If DB_PASSWORD is not set, default to the password requested by the user
-        password=os.getenv('DB_PASSWORD', 'raidblack')
+        host=settings.get('host') or os.getenv('DB_HOST', 'localhost'),
+        port=int(settings.get('port') or os.getenv('DB_PORT', 5432)),
+        database=settings.get('database') or os.getenv('DB_NAME', 'university_db'),
+        user=settings.get('user') or os.getenv('DB_USER', 'postgres'),
+        password=settings.get('password') or os.getenv('DB_PASSWORD', '')
     )
 

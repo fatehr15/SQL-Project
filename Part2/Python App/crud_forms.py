@@ -30,7 +30,13 @@ class GenericCRUDForm(QWidget):
         # Allow optional construction for embedding/tests
         self.table_name = table_name or 'Generic'
         self.columns_config = columns_config or []
-        self.db_connection = get_db_connection()
+        # Try to get connection from parent if available
+        if parent and hasattr(parent, 'db_connection') and parent.db_connection is not None:
+            self.db_connection = parent.db_connection
+        else:
+            self.db_connection = get_db_connection()
+            if self.db_connection is None:
+                raise Exception("No database connection available. Please check your database setup.")
         self.db_connection.connect()
         self.current_edit_id = None
         self.init_ui()
@@ -284,7 +290,7 @@ class GenericCRUDForm(QWidget):
             
             cursor = self.db_connection.get_cursor()
             cursor.execute(query, values)
-            self.db_connection.connection.commit()
+            self.db_connection.commit()
             
             QMessageBox.information(self, 'Success', 'Record created successfully!')
             self.clear_form()
@@ -333,7 +339,7 @@ class GenericCRUDForm(QWidget):
             
             cursor = self.db_connection.get_cursor()
             cursor.execute(query, values)
-            self.db_connection.connection.commit()
+            self.db_connection.commit()
             
             if cursor.rowcount > 0:
                 QMessageBox.information(self, 'Success', 'Record updated successfully!')
@@ -376,7 +382,7 @@ class GenericCRUDForm(QWidget):
             
             cursor = self.db_connection.get_cursor()
             cursor.execute(query, values)
-            self.db_connection.connection.commit()
+            self.db_connection.commit()
             
             if cursor.rowcount > 0:
                 QMessageBox.information(self, 'Success', 'Record deleted successfully!')

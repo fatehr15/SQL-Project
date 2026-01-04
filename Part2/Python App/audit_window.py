@@ -19,7 +19,13 @@ class AuditWindow(QMainWindow):
     
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.db_connection = get_db_connection()
+        # Try to get connection from parent (MainWindow) if available
+        if parent and hasattr(parent, 'db_connection') and parent.db_connection is not None:
+            self.db_connection = parent.db_connection
+        else:
+            self.db_connection = get_db_connection()
+            if self.db_connection is None:
+                raise Exception("No database connection available. Please check your database setup.")
         self.db_connection.connect()
         self.init_ui()
         self.setup_audit_tables()
@@ -51,7 +57,7 @@ class AuditWindow(QMainWindow):
                         RowsAffected INTEGER DEFAULT 0
                     )
                 """)
-                self.db_connection.connection.commit()
+                self.db_connection.commit()
             else:
                 # Create Marks_Audit_Log table
                 cursor.execute("""
@@ -75,7 +81,7 @@ class AuditWindow(QMainWindow):
                     )
                 """)
 
-                self.db_connection.connection.commit()
+                self.db_connection.commit()
         except Exception as e:
             print(f"Note: Audit tables setup: {e}")
     

@@ -24,6 +24,14 @@ class DemoDatabaseConnection:
             demo_dir = project_root / "demo"
             demo_dir.mkdir(exist_ok=True)
             db_path = demo_dir / "university_demo.db"
+            
+            # Ensure static demo database exists
+            if not Path(db_path).exists():
+                try:
+                    from setup_static_demo import create_static_demo_database
+                    create_static_demo_database()
+                except Exception as e:
+                    print(f"Warning: Could not create static demo database: {e}")
         
         self.db_path = db_path
         self.connection = None
@@ -180,6 +188,16 @@ class DemoDatabaseConnection:
         import re
         query = re.sub(r'::\w+', '', query)
         return query
+    
+    def commit(self):
+        """Commit the current transaction."""
+        if self.connection:
+            self.connection.commit()
+    
+    def rollback(self):
+        """Rollback the current transaction."""
+        if self.connection:
+            self.connection.rollback()
     
     def close(self):
         """Close database connection and cursor."""
