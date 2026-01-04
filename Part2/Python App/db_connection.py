@@ -141,6 +141,7 @@ def get_db_connection():
         port=int(os.getenv('DB_PORT', 5432)),
         database=os.getenv('DB_NAME', 'university_db'),  # Changed to match Part 1 database
         user=os.getenv('DB_USER', 'postgres'),
-        password=os.getenv('DB_PASSWORD', ' ')  # Empty password for PostgreSQL
+        # Do NOT default to a space — require explicit DB_PASSWORD if the password is a literal space
+        password=os.getenv('DB_PASSWORD', '')
     )
 
