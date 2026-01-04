@@ -5,12 +5,15 @@ Main window with navigation to 6 sub-menus.
 
 import sys
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
-                             QHBoxLayout, QPushButton, QLabel, QMessageBox)
+                             QHBoxLayout, QPushButton, QLabel, QMessageBox,
+                             QListWidget, QStackedWidget, QToolButton)
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont, QIcon
+from PyQt5.QtCore import QSize
 from db_connection import get_db_connection
 from db_connection_demo import get_demo_db_connection
 import sys
+import os
 import os
 from crud_window import CRUDWindow
 from reservation_window import ReservationWindow
@@ -34,79 +37,93 @@ class MainWindow(QMainWindow):
         """Initialize the user interface."""
         self.setWindowTitle('University Database Management System')
         self.setGeometry(100, 100, 900, 600)
-        
         # Central widget
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-        
-        # Main layout
-        main_layout = QVBoxLayout()
-        central_widget.setLayout(main_layout)
-        
-        # Title
-        title = QLabel('University Database Management System')
-        title_font = QFont()
-        title_font.setPointSize(20)
-        title_font.setBold(True)
-        title.setFont(title_font)
-        title.setAlignment(Qt.AlignCenter)
-        title.setStyleSheet("padding: 20px; color: #2c3e50;")
-        main_layout.addWidget(title)
-        
-        # Subtitle
-        subtitle = QLabel('Select a module from the menu below')
-        subtitle.setAlignment(Qt.AlignCenter)
-        subtitle.setStyleSheet("padding: 10px; color: #7f8c8d;")
-        main_layout.addWidget(subtitle)
-        
-        # Buttons layout (2 columns, 3 rows)
-        buttons_layout = QVBoxLayout()
-        buttons_layout.setSpacing(15)
-        
-        # Row 1
-        row1 = QHBoxLayout()
-        row1.setSpacing(15)
-        
-        btn_crud = self.create_menu_button('CRUD Operations', 
-                                           'Manage Create, Read, Update, Delete operations')
-        btn_assign = self.create_menu_button('Assignment/Reservations', 
-                                            'Manage course assignments and room reservations')
-        
-        row1.addWidget(btn_crud)
-        row1.addWidget(btn_assign)
-        buttons_layout.addLayout(row1)
-        
-        # Row 2
-        row2 = QHBoxLayout()
-        row2.setSpacing(15)
-        
-        btn_marks = self.create_menu_button('Marks & Attendance', 
-                                           'Manage student marks and attendance records')
-        btn_grading = self.create_menu_button('Grading/Results Processing', 
-                                             'Process grades and generate results')
-        
-        row2.addWidget(btn_marks)
-        row2.addWidget(btn_grading)
-        buttons_layout.addLayout(row2)
-        
-        # Row 3
-        row3 = QHBoxLayout()
-        row3.setSpacing(15)
-        
-        btn_reporting = self.create_menu_button('Reporting (SQL Queries)', 
-                                               'Execute complex SQL queries and generate reports')
-        btn_audit = self.create_menu_button('Audit', 
-                                           'View audit logs and trigger information')
-        
-        row3.addWidget(btn_reporting)
-        row3.addWidget(btn_audit)
-        buttons_layout.addLayout(row3)
-        
-        # Add buttons layout to main layout
-        main_layout.addLayout(buttons_layout)
-        
-        # Add stretch to push buttons to center
-        main_layout.addStretch()
+
+        # Overall layout: left navigation + main content
+        outer_layout = QHBoxLayout()
+        central_widget.setLayout(outer_layout)
+
+        # LEFT: navigation (persistent)
+        self.nav_list = QListWidget()
+        self.nav_list.setFixedWidth(200)
+        self.nav_list.setIconSize(QSize(24, 24))
+        # Compact mode toggle
+        self.compact_toggle = QToolButton()
+        self.compact_toggle.setText('◀')
+        self.compact_toggle.setCheckable(True)
+        self.compact_toggle.setToolTip('Toggle compact sidebar (icons only)')
+        self.compact_toggle.clicked.connect(self.toggle_compact_mode)
+
+        # Nav items
+        nav_items = [
+            ('Dashboard', 'Overview and quick actions'),
+            ('Students', 'Manage students'),
+            ('Instructors', 'Manage instructors'),
+            ('Courses', 'Manage courses'),
+            ('Rooms', 'Manage rooms'),
+            ('Reservations', 'Room reservations and assignments'),
+            ('Reports', 'Reporting (SQL queries)'),
+            ('Admin', 'Audit and administrative tools')
+        ]
+
+        for label, tip in nav_items:
+            self.nav_list.addItem(label)
+        self.nav_list.currentRowChanged.connect(self.on_nav_changed)
+
+        left_col = QVBoxLayout()
+        left_col.addWidget(self.compact_toggle)
+        left_col.addWidget(self.nav_list)
+        left_col.addStretch()
+
+        left_widget = QWidget()
+        left_widget.setLayout(left_col)
+        outer_layout.addWidget(left_widget)
+
+        # RIGHT: stacked content with breadcrumb/title
+        right_col = QVBoxLayout()
+
+        # Breadcrumb / title bar
+        self.breadcrumb = QLabel('Dashboard')
+        bc_font = QFont()
+        bc_font.setPointSize(14)
+        bc_font.setBold(True)
+        self.breadcrumb.setFont(bc_font)
+        self.breadcrumb.setStyleSheet('padding: 8px;')
+        right_col.addWidget(self.breadcrumb)
+
+        # Stacked widget for content areas
+        self.stack = QStackedWidget()
+        right_col.addWidget(self.stack)
+
+        right_widget = QWidget()
+        right_widget.setLayout(right_col)
+        outer_layout.addWidget(right_widget, 1)
+
+        # Create simple pages for each nav item (these can open full windows)
+        pages = {}
+        for label, tip in nav_items:
+            page = QWidget()
+            p_layout = QVBoxLayout()
+            title = QLabel(label)
+            title.setFont(QFont('Arial', 16, QFont.Bold))
+            p_layout.addWidget(title)
+            desc = QLabel(tip)
+            desc.setStyleSheet('color: #555;')
+            p_layout.addWidget(desc)
+            # Button to open full module window (preserve existing windows)
+            open_btn = QPushButton(f'Open {label} window')
+            open_btn.setMaximumWidth(240)
+            open_btn.clicked.connect(lambda _, name=label: self.open_module_window(name))
+            p_layout.addWidget(open_btn)
+            p_layout.addStretch()
+            page.setLayout(p_layout)
+            self.stack.addWidget(page)
+            pages[label] = page
+
+        # Default selection
+        self.nav_list.setCurrentRow(0)
         
         # Status bar
         self.statusBar().showMessage('Ready')
@@ -150,6 +167,71 @@ class MainWindow(QMainWindow):
             }
         """)
         return button
+
+    def toggle_compact_mode(self):
+        """Toggle sidebar compact mode (icons-only)."""
+        compact = self.compact_toggle.isChecked()
+        if compact:
+            # icons-only: hide text by reducing width and showing only icons
+            self.nav_list.setFixedWidth(64)
+            for i in range(self.nav_list.count()):
+                item = self.nav_list.item(i)
+                item.setText('')
+        else:
+            self.nav_list.setFixedWidth(200)
+            # restore labels
+            labels = ['Dashboard','Students','Instructors','Courses','Rooms','Reservations','Reports','Admin']
+            for i in range(self.nav_list.count()):
+                item = self.nav_list.item(i)
+                item.setText(labels[i])
+
+    def on_nav_changed(self, index):
+        """Update stacked widget and breadcrumb when navigation changes."""
+        if index < 0:
+            return
+        self.stack.setCurrentIndex(index)
+        label = self.nav_list.item(index).text() or ['Dashboard','Students','Instructors','Courses','Rooms','Reservations','Reports','Admin'][index]
+        self.breadcrumb.setText(label)
+
+    def open_module_window(self, name):
+        """Open the full module window for the given module name."""
+        try:
+            if name == 'CRUD Operations' or name == 'Students' or name == 'Courses' or name == 'Instructors':
+                self.crud_window = CRUDWindow(self)
+                self.crud_window.show()
+            elif name == 'Reservations' or name == 'Rooms':
+                self.reservation_window = ReservationWindow(self)
+                self.reservation_window.show()
+            elif name == 'Marks' or name == 'Marks & Attendance' or name == 'Attendance':
+                self.marks_attendance_window = MarksAttendanceWindow(self)
+                self.marks_attendance_window.show()
+            elif name == 'Grading' or name == 'Grading/Results Processing':
+                self.grading_window = GradingWindow(self)
+                self.grading_window.show()
+            elif name == 'Reports' or name == 'Reporting':
+                self.reporting_window = ReportingWindow(self)
+                self.reporting_window.show()
+            elif name == 'Admin' or name == 'Audit':
+                self.audit_window = AuditWindow(self)
+                self.audit_window.show()
+            else:
+                # fallback: attempt generic mapping by name
+                mapping = {
+                    'Dashboard': None,
+                    'Students': CRUDWindow,
+                    'Instructors': CRUDWindow,
+                    'Courses': CRUDWindow,
+                    'Rooms': ReservationWindow,
+                    'Reservations': ReservationWindow,
+                    'Reports': ReportingWindow,
+                    'Admin': AuditWindow
+                }
+                cls = mapping.get(name)
+                if cls:
+                    win = cls(self)
+                    win.show()
+        except Exception as e:
+            QMessageBox.warning(self, 'Error', f'Failed to open {name}:\n{e}')
     
     def test_connection(self):
         """Test database connection on startup."""
