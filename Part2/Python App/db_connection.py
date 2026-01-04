@@ -12,7 +12,7 @@ import os
 class DatabaseConnection:
     """Manages PostgreSQL database connections and cursors."""
     
-    def __init__(self, host='localhost', port=5432, database='university', user='postgres', password=''):
+    def __init__(self, host='localhost', port=5432, database='university_db', user='postgres', password=''):
         self.host = host
         self.port = port
         self.database = database
@@ -142,6 +142,7 @@ def get_db_connection():
         database=os.getenv('DB_NAME', 'university_db'),  # Changed to match Part 1 database
         user=os.getenv('DB_USER', 'postgres'),
         # Do NOT default to a space — require explicit DB_PASSWORD if the password is a literal space
-        password=os.getenv('DB_PASSWORD', '')
+        # If DB_PASSWORD is not set, default to the password requested by the user
+        password=os.getenv('DB_PASSWORD', 'raidblack')
     )
 
