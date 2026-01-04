@@ -33,16 +33,6 @@ The University Database Management System is a PyQt5-based desktop application t
 
 ---
 
-## Prerequisites
-
-Before running the application, ensure you have:
-
-1. **Python 3.8+** installed
-2. **pip** (Python package manager)
-3. **PostgreSQL 12+** (optional - for production database)
-4. **Required Python packages** (see Requirements.txt)
-
----
 
 ## Quick Start
 
@@ -800,11 +790,6 @@ psycopg2-binary>=2.9.0    # PostgreSQL adapter
 PyQt5>=5.15.0             # GUI framework
 ```
 
-### System Requirements
-
-- **Python:** 3.8 or higher
-- **PostgreSQL:** 12+ (optional, for production database)
-- **Operating System:** Windows, Linux, or macOS
 
 ### Installation
 
@@ -870,7 +855,7 @@ setup_static_demo.py
 
 ## License
 
-This project is part of a university database management course.
+This project is part of "Introduction to database" course at NSCS .
 
 ---
 
@@ -884,8 +869,12 @@ For issues or questions:
 
 ---
 
-**Last Updated:** 2024
+**Last Updated:** Jan 2026
+
 **Python Version:** 3.8+
+
 **PostgreSQL Version:** 12+ (optional)
+
 **GUI Framework:** PyQt5
+
 
