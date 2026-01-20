@@ -31,12 +31,18 @@ class GradingWindow(QMainWindow):
         self.load_courses()
         self.ensure_passing_grade_column()
     
+    def _is_demo_mode(self):
+        """Check if using demo database (SQLite)."""
+        from db_connection_demo import DemoDatabaseConnection
+        return isinstance(self.db_connection, DemoDatabaseConnection)
+    
     def ensure_passing_grade_column(self):
         """Ensure Course table has Passing_Grade column, add if not."""
         try:
             cursor = self.db_connection.get_cursor()
             # Check if column exists (Postgres vs SQLite)
-            if os.getenv('USE_DEMO_DB', '0') == '1':
+            is_demo = self._is_demo_mode()
+            if is_demo:
                 cursor.execute("PRAGMA table_info('Course')")
                 cols = [row[1] for row in cursor.fetchall()]
                 if 'passing_grade' not in cols:
@@ -160,7 +166,7 @@ class GradingWindow(QMainWindow):
         try:
             cursor = self.db_connection.get_cursor()
             cursor.execute("""
-                SELECT c.Course_ID, c.Department_ID, c.name, d.name as dept_name,
+                SELECT c.Course_ID, c.Department_ID, c.name as Course_Name, d.name as Department_Name,
                        COALESCE(c.passing_grade, 10.0) as passing_grade
                 FROM Course c
                 JOIN Department d ON c.Department_ID = d.Department_id
@@ -212,11 +218,11 @@ class GradingWindow(QMainWindow):
                     m.student_id,
                     s.Last_Name || ', ' || s.First_Name as Student_Name,
                     COUNT(m.mark_id) as Mark_Count,
-                    ROUND(AVG(m.mark)::numeric, 2) as Average_Mark,
+                    ROUND(AVG(m.mark), 2) as Average_Mark,
                     MIN(m.mark) as Min_Mark,
                     MAX(m.mark) as Max_Mark,
                     CASE 
-                        WHEN ROUND(AVG(m.mark)::numeric, 2) >= %s THEN 'PASSED'
+                        WHEN ROUND(AVG(m.mark), 2) >= %s THEN 'PASSED'
                         ELSE 'FAILED'
                     END as Result
                 FROM Marks m

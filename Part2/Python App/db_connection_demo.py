@@ -1,193 +1,258 @@
-"""
-Demo Database Connection Module
-Uses SQLite for local testing without PostgreSQL setup.
-"""
-
 import sqlite3
-import os
 from pathlib import Path
 
 
+class CursorWrapper:
+    """Wrapper around SQLite cursor to provide PostgreSQL-like interface."""
+    
+    def __init__(self, cursor):
+        self._cursor = cursor
+        self._description = None
+    
+    @property
+    def description(self):
+        """Return cursor description (column metadata)."""
+        # Use the underlying cursor's description
+        return self._cursor.description
+    
+    @description.setter
+    def description(self, value):
+        """Allow setting description (needed for some operations)."""
+        # Store in our wrapper, but this doesn't affect the real cursor
+        self._description = value
+    
+    def execute(self, query, params=None):
+        """Execute a query with optional parameters."""
+        if params is None:
+            return self._cursor.execute(query)
+        else:
+            # Convert %s style placeholders to ? style for SQLite
+            converted_query = query.replace('%s', '?')
+            return self._cursor.execute(converted_query, params)
+    
+    def executemany(self, query, params_list):
+        """Execute a query multiple times with different parameters."""
+        converted_query = query.replace('%s', '?')
+        return self._cursor.executemany(converted_query, params_list)
+    
+    def fetchone(self):
+        """Fetch one row."""
+        return self._cursor.fetchone()
+    
+    def fetchall(self):
+        """Fetch all rows."""
+        return self._cursor.fetchall()
+    
+    def fetchmany(self, size=None):
+        """Fetch multiple rows."""
+        if size is None:
+            return self._cursor.fetchmany()
+        return self._cursor.fetchmany(size)
+    
+    @property
+    def rowcount(self):
+        """Return number of rows affected."""
+        return self._cursor.rowcount
+    
+    @property
+    def lastrowid(self):
+        """Return last inserted row ID."""
+        return self._cursor.lastrowid
+    
+    def close(self):
+        """Close the cursor."""
+        return self._cursor.close()
+    
+    def __enter__(self):
+        """Context manager entry."""
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit."""
+        self.close()
+    
+    def __iter__(self):
+        """Make cursor iterable."""
+        return iter(self._cursor)
+
+
 class DemoDatabaseConnection:
-    """Manages SQLite database connections for demo/testing."""
+    """Demo database connection using SQLite."""
     
     def __init__(self, db_path=None):
         """
-        Initialize SQLite database connection.
+        Initialize demo database connection.
         
         Args:
-            db_path: Path to SQLite database file (default: demo/university_demo.db)
+            db_path: Path to SQLite database file. 
+                    If None, uses default demo database.
+                    If ':memory:', creates in-memory database.
         """
         if db_path is None:
-            # Create demo directory in project root
-            project_root = Path(__file__).parent.parent.parent
-            demo_dir = project_root / "demo"
-            demo_dir.mkdir(exist_ok=True)
-            db_path = demo_dir / "university_demo.db"
-            
-            # Ensure static demo database exists
-            if not Path(db_path).exists():
-                try:
-                    from setup_static_demo import create_static_demo_database
-                    create_static_demo_database()
-                except Exception as e:
-                    print(f"Warning: Could not create static demo database: {e}")
+            # Default demo database path
+            project_root = Path(__file__).resolve().parent.parent.parent
+            self.db_path = project_root / "demo" / "university_demo.db"
+        else:
+            self.db_path = db_path
         
-        self.db_path = db_path
         self.connection = None
-        self.cursor = None
+        self._in_memory = (db_path == ':memory:')
     
     def connect(self):
-        """
-        Establish connection to SQLite database.
+        """Establish connection to SQLite database."""
+        if self._in_memory:
+            # In-memory database
+            self.connection = sqlite3.connect(':memory:')
+            # Initialize schema for in-memory database
+            self._initialize_in_memory_schema()
+        else:
+            # File-based database
+            db_path_str = str(self.db_path)
+            
+            # Check if database file exists
+            if not Path(db_path_str).exists() and db_path_str != ':memory:':
+                raise FileNotFoundError(f"Database file not found: {db_path_str}")
+            
+            self.connection = sqlite3.connect(db_path_str)
         
-        Returns:
-            sqlite3.Connection: Database connection object
+        # Enable foreign keys
+        self.connection.execute("PRAGMA foreign_keys = ON")
+        
+        # Set row factory to return Row objects (dict-like access)
+        self.connection.row_factory = sqlite3.Row
+        
+        return self.connection
+    
+    def _initialize_in_memory_schema(self):
+        """Initialize schema and sample data for in-memory database."""
+        cursor = self.connection.cursor()
+        
+        # Create tables with minimal schema
+        schema_sql = """
+        -- Department table
+        CREATE TABLE IF NOT EXISTS Department (
+            dept_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            dept_name TEXT NOT NULL UNIQUE,
+            building TEXT,
+            budget REAL
+        );
+        
+        -- Instructor table
+        CREATE TABLE IF NOT EXISTS Instructor (
+            instructor_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            dept_id INTEGER,
+            salary REAL,
+            FOREIGN KEY (dept_id) REFERENCES Department(dept_id)
+        );
+        
+        -- Student table
+        CREATE TABLE IF NOT EXISTS Student (
+            student_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            dept_id INTEGER,
+            tot_cred INTEGER DEFAULT 0,
+            FOREIGN KEY (dept_id) REFERENCES Department(dept_id)
+        );
+        
+        -- Course table
+        CREATE TABLE IF NOT EXISTS Course (
+            course_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            dept_id INTEGER,
+            credits INTEGER,
+            FOREIGN KEY (dept_id) REFERENCES Department(dept_id)
+        );
+        
+        -- Section table
+        CREATE TABLE IF NOT EXISTS Section (
+            section_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            course_id INTEGER,
+            sec_id TEXT,
+            semester TEXT,
+            year INTEGER,
+            building TEXT,
+            room_number TEXT,
+            FOREIGN KEY (course_id) REFERENCES Course(course_id)
+        );
+        
+        -- Teaches table
+        CREATE TABLE IF NOT EXISTS Teaches (
+            instructor_id INTEGER,
+            section_id INTEGER,
+            PRIMARY KEY (instructor_id, section_id),
+            FOREIGN KEY (instructor_id) REFERENCES Instructor(instructor_id),
+            FOREIGN KEY (section_id) REFERENCES Section(section_id)
+        );
+        
+        -- Takes table
+        CREATE TABLE IF NOT EXISTS Takes (
+            student_id INTEGER,
+            section_id INTEGER,
+            grade TEXT,
+            PRIMARY KEY (student_id, section_id),
+            FOREIGN KEY (student_id) REFERENCES Student(student_id),
+            FOREIGN KEY (section_id) REFERENCES Section(section_id)
+        );
+        
+        -- Classroom table
+        CREATE TABLE IF NOT EXISTS Classroom (
+            building TEXT,
+            room_number TEXT,
+            capacity INTEGER,
+            PRIMARY KEY (building, room_number)
+        );
         """
-        try:
-            self.connection = sqlite3.connect(str(self.db_path))
-            self.connection.row_factory = sqlite3.Row  # Enable column access by name
-            # Register helper functions for compatibility with Postgres-based code
-            try:
-                # CheckReservation(building, room, date, start_time, end_time)
-                def _check_reservation(building, roomno, reserv_date, start_time, end_time):
-                    cur = self.connection.cursor()
-                    # Normalize inputs to strings
-                    b = building
-                    r = roomno
-                    d = reserv_date
-                    s = start_time
-                    e = end_time
-                    # Count overlapping reservations
-                    q = """
-                        SELECT COUNT(*) FROM Reservation
-                        WHERE Building = ? AND RoomNo = ? AND Reserv_Date = ?
-                          AND NOT (End_Time <= ? OR Start_Time >= ?)
-                    """
-                    cur.execute(q, (b, r, d, s, e))
-                    row = cur.fetchone()
-                    return row[0] if row is not None else 0
-
-                # Register with SQLite (name matching Postgres function)
-                try:
-                    self.connection.create_function('CheckReservation', 5, _check_reservation)
-                except Exception:
-                    pass
-            except Exception:
-                pass
-            return self.connection
-        except Exception as e:
-            print(f"Error connecting to demo database: {e}")
-            raise
+        
+        # Execute schema creation
+        cursor.executescript(schema_sql)
+        
+        # Insert sample data
+        sample_data = """
+        -- Sample departments
+        INSERT INTO Department (dept_name, building, budget) VALUES
+            ('Computer Science', 'Taylor', 100000),
+            ('Mathematics', 'Watson', 80000),
+            ('Physics', 'Einstein', 90000);
+        
+        -- Sample instructors
+        INSERT INTO Instructor (name, dept_id, salary) VALUES
+            ('Dr. Smith', 1, 75000),
+            ('Dr. Johnson', 1, 80000),
+            ('Dr. Williams', 2, 70000);
+        
+        -- Sample students
+        INSERT INTO Student (name, dept_id, tot_cred) VALUES
+            ('Alice Johnson', 1, 32),
+            ('Bob Smith', 1, 45),
+            ('Charlie Brown', 2, 28);
+        
+        -- Sample courses
+        INSERT INTO Course (title, dept_id, credits) VALUES
+            ('Database Systems', 1, 4),
+            ('Algorithms', 1, 4),
+            ('Calculus I', 2, 4);
+        
+        -- Sample classrooms
+        INSERT INTO Classroom (building, room_number, capacity) VALUES
+            ('Taylor', '101', 50),
+            ('Watson', '201', 40),
+            ('Einstein', '301', 30);
+        """
+        
+        cursor.executescript(sample_data)
+        self.connection.commit()
+        cursor.close()
+    
+    def cursor(self):
+        """Get a database cursor wrapped for compatibility."""
+        if self.connection is None:
+            raise Exception("Database not connected. Call connect() first.")
+        return CursorWrapper(self.connection.cursor())
     
     def get_cursor(self):
-        """
-        Get a cursor for executing SQL queries.
-        
-        Returns:
-            sqlite3.Cursor: Database cursor object
-        """
-        if self.connection is None:
-            self.connect()
-        
-        if self.cursor is None:
-            raw = self.connection.cursor()
-
-            # Wrapper to adapt Postgres-style SQL to SQLite and handle '%s' placeholders
-            class CursorWrapper:
-                def __init__(self, demo_conn, raw_cursor):
-                    self._demo = demo_conn
-                    self._cur = raw_cursor
-
-                def execute(self, query, params=None):
-                    q = self._demo._adapt_query(query)
-                    if params is not None:
-                        q = q.replace('%s', '?')
-                    if params is not None:
-                        return self._cur.execute(q, params)
-                    else:
-                        return self._cur.execute(q)
-
-                def executemany(self, query, seq_of_params):
-                    q = self._demo._adapt_query(query)
-                    q = q.replace('%s', '?')
-                    return self._cur.executemany(q, seq_of_params)
-
-                def executescript(self, script):
-                    s = self._demo._adapt_query(script)
-                    return self._cur.executescript(s)
-
-                def fetchone(self):
-                    return self._cur.fetchone()
-
-                def fetchall(self):
-                    return self._cur.fetchall()
-
-                def close(self):
-                    try:
-                        return self._cur.close()
-                    finally:
-                        pass
-
-                def __getattr__(self, name):
-                    return getattr(self._cur, name)
-
-            self.cursor = CursorWrapper(self, raw)
-
-        return self.cursor
-    
-    def execute_query(self, query, params=None):
-        """
-        Execute a SQL query and return results.
-        
-        Args:
-            query: SQL query string (PostgreSQL syntax adapted for SQLite)
-            params: Optional parameters for parameterized queries
-            
-        Returns:
-            list: Query results (for SELECT queries)
-        """
-        # Adapt PostgreSQL syntax to SQLite
-        query = self._adapt_query(query)
-
-        # Convert psycopg2-style '%s' parameter placeholders to SQLite '?'
-        if params is not None:
-            query = query.replace('%s', '?')
-
-        cursor = self.get_cursor()
-        try:
-            if params:
-                cursor.execute(query, params)
-            else:
-                cursor.execute(query)
-            
-            # For SELECT queries, fetch results
-            if query.strip().upper().startswith('SELECT'):
-                return cursor.fetchall()
-            else:
-                self.connection.commit()
-                return cursor.rowcount
-        except Exception as e:
-            self.connection.rollback()
-            print(f"Error executing query: {e}")
-            raise
-    
-    def _adapt_query(self, query):
-        """Adapt PostgreSQL syntax to SQLite."""
-        # Replace PostgreSQL-specific syntax
-        query = query.replace('SERIAL', 'INTEGER')
-        query = query.replace('::date', '')
-        query = query.replace('::time', '')
-        query = query.replace('::numeric', '')
-        query = query.replace('::integer', '')
-        query = query.replace('::text', '')
-        query = query.replace('CURRENT_TIMESTAMP', "datetime('now')")
-        query = query.replace('CURRENT_DATE', "date('now')")
-        query = query.replace('CURRENT_TIME', "time('now')")
-        # Remove type casts in function calls
-        import re
-        query = re.sub(r'::\w+', '', query)
-        return query
+        """Alias for cursor() method."""
+        return self.cursor()
     
     def commit(self):
         """Commit the current transaction."""
@@ -200,14 +265,16 @@ class DemoDatabaseConnection:
             self.connection.rollback()
     
     def close(self):
-        """Close database connection and cursor."""
-        if self.cursor:
-            self.cursor.close()
-            self.cursor = None
-        
+        """Close the database connection."""
         if self.connection:
             self.connection.close()
             self.connection = None
+    
+    def execute(self, query, params=None):
+        """Execute a query directly on the connection."""
+        cursor = self.cursor()
+        cursor.execute(query, params)
+        return cursor
     
     def __enter__(self):
         """Context manager entry."""
@@ -216,15 +283,23 @@ class DemoDatabaseConnection:
     
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit."""
+        if exc_type is None:
+            self.commit()
+        else:
+            self.rollback()
         self.close()
 
 
 def get_demo_db_connection():
     """
-    Get a demo database connection instance (SQLite).
-    
-    Returns:
-        DemoDatabaseConnection: Configured demo database connection
+    Get a demo database connection.
+    Uses the default demo database file.
     """
-    return DemoDatabaseConnection()
+    conn = DemoDatabaseConnection()
+    # Don't call connect() here - let the caller do it
+    # This matches the pattern of the main db_connection module
+    return conn
 
+
+# For compatibility with modules that import this directly
+__all__ = ['DemoDatabaseConnection', 'get_demo_db_connection']

@@ -31,12 +31,18 @@ class AuditWindow(QMainWindow):
         self.setup_triggers()
         self.load_audit_logs()
     
+    def _is_demo_mode(self):
+        """Check if using demo database (SQLite)."""
+        from db_connection_demo import DemoDatabaseConnection
+        return isinstance(self.db_connection, DemoDatabaseConnection)
+    
     def setup_audit_tables(self):
         """Create audit tables for Marks and Attendance if they don't exist."""
         try:
             cursor = self.db_connection.get_cursor()
             # Create audit tables (use SQLite-compatible definitions when in demo mode)
-            if os.getenv('USE_DEMO_DB', '0') == '1':
+            is_demo = self._is_demo_mode()
+            if is_demo:
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS Marks_Audit_Log (
                         LogID INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -89,7 +95,8 @@ class AuditWindow(QMainWindow):
         try:
             cursor = self.db_connection.get_cursor()
             # Triggers and functions are Postgres-specific; for demo mode skip creating PL/pgSQL functions
-            if os.getenv('USE_DEMO_DB', '0') == '1':
+            is_demo = self._is_demo_mode()
+            if is_demo:
                 # Skip function/trigger creation on SQLite demo — triggers are optional for demo
                 return
 

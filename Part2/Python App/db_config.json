@@ -3,5 +3,6 @@
   "port": 5432,
   "database": "university_db",
   "user": "postgres",
+  "password": " ",
   "use_demo": false
 }

@@ -30,9 +30,19 @@ class ReportingWindow(QMainWindow):
         self.ensure_functions()
         self.ensure_student_columns()
     
+    def _is_demo_mode(self):
+        """Check if using demo database (SQLite)."""
+        from db_connection_demo import DemoDatabaseConnection
+        return isinstance(self.db_connection, DemoDatabaseConnection)
+    
     def ensure_student_columns(self):
         """Ensure Student table has group_id and section_id columns."""
         try:
+            is_demo = self._is_demo_mode()
+            if is_demo:
+                # SQLite: Skip column addition for demo mode
+                return
+            
             cursor = self.db_connection.get_cursor()
             # Check and add group_id
             cursor.execute("""
@@ -114,7 +124,7 @@ class ReportingWindow(QMainWindow):
             LANGUAGE plpgsql AS $$
             BEGIN
                 RETURN QUERY
-                SELECT r.Reservation_ID, r.Building, r.RoomNo, c.name, d.name,
+                SELECT r.Reservation_ID, r.Building, r.RoomNo, c.name as Course_Name, d.name as Department_Name,
                        r.Reserv_Date, r.Start_Time, r.End_Time, r.Hours_Number
                 FROM Reservation r
                 JOIN Course c ON r.Course_ID = c.Course_ID AND r.Department_ID = c.Department_ID
@@ -140,8 +150,8 @@ class ReportingWindow(QMainWindow):
             BEGIN
                 RETURN QUERY
                 SELECT m.student_id, s.Last_Name || ', ' || s.First_Name,
-                       m.course_id, c.name, ROUND(AVG(m.mark)::NUMERIC, 2),
-                       COUNT(m.mark_id)::INTEGER
+                       m.course_id, c.name as Course_Name, ROUND(AVG(m.mark), 2),
+                       COUNT(m.mark_id) as Mark_Count
                 FROM Marks m
                 JOIN Student s ON m.student_id = s.Student_ID
                 JOIN Course c ON m.course_id = c.Course_ID AND m.dept_id = c.Department_ID
@@ -149,7 +159,7 @@ class ReportingWindow(QMainWindow):
                   AND (p_dept_id IS NULL OR m.dept_id = p_dept_id)
                 GROUP BY m.student_id, s.Last_Name, s.First_Name, m.course_id, c.name
                 HAVING AVG(m.mark) >= p_passing_grade
-                ORDER BY ROUND(AVG(m.mark)::NUMERIC, 2) DESC, s.Last_Name;
+                ORDER BY ROUND(AVG(m.mark), 2) DESC, s.Last_Name;
             END;
             $$;
         """)
@@ -165,9 +175,9 @@ class ReportingWindow(QMainWindow):
             LANGUAGE plpgsql AS $$
             BEGIN
                 RETURN QUERY
-                SELECT m.course_id, m.dept_id, c.name, d.name,
-                       ROUND(AVG(m.mark)::NUMERIC, 2),
-                       COALESCE(c.passing_grade, 10.0), COUNT(m.mark_id)::INTEGER
+                SELECT m.course_id, m.dept_id, c.name as Course_Name, d.name as Department_Name,
+                       ROUND(AVG(m.mark), 2) as Average_Mark,
+                       COALESCE(c.passing_grade, 10.0) as Passing_Grade, COUNT(m.mark_id) as Mark_Count
                 FROM Marks m
                 JOIN Course c ON m.course_id = c.Course_ID AND m.dept_id = c.Department_ID
                 JOIN Department d ON m.dept_id = d.Department_id
@@ -190,16 +200,16 @@ class ReportingWindow(QMainWindow):
             LANGUAGE plpgsql AS $$
             BEGIN
                 RETURN QUERY
-                SELECT m.course_id, m.dept_id, c.name, d.name,
-                       ROUND(AVG(m.mark)::NUMERIC, 2), COALESCE(c.passing_grade, 10.0),
+                SELECT m.course_id, m.dept_id, c.name as Course_Name, d.name as Department_Name,
+                       ROUND(AVG(m.mark), 2) as Average_Mark, COALESCE(c.passing_grade, 10.0) as Passing_Grade,
                        CASE WHEN AVG(m.mark) < COALESCE(c.passing_grade, 10.0) 
                             AND AVG(m.mark) >= (COALESCE(c.passing_grade, 10.0) - 2.0)
-                       THEN TRUE ELSE FALSE END,
+                       THEN TRUE ELSE FALSE END as Eligible,
                        CASE WHEN AVG(m.mark) >= COALESCE(c.passing_grade, 10.0) 
                             THEN 'Passed - No resit needed'
                             WHEN AVG(m.mark) < (COALESCE(c.passing_grade, 10.0) - 2.0) 
                             THEN 'Grade too low for resit'
-                            ELSE 'Eligible for resit examination' END
+                            ELSE 'Eligible for resit examination' END as Reason
                 FROM Marks m
                 JOIN Course c ON m.course_id = c.Course_ID AND m.dept_id = c.Department_ID
                 JOIN Department d ON m.dept_id = d.Department_id
@@ -225,18 +235,18 @@ class ReportingWindow(QMainWindow):
             LANGUAGE plpgsql AS $$
             BEGIN
                 RETURN QUERY
-                SELECT a.course_id, a.dept_id, c.name, d.name,
-                       COUNT(DISTINCT a.attendance_date)::INTEGER,
-                       COUNT(CASE WHEN a.status IN ('Present', 'Late') THEN 1 END)::INTEGER,
+                SELECT a.course_id, a.dept_id, c.name as Course_Name, d.name as Department_Name,
+                       COUNT(DISTINCT a.attendance_date) as Total_Sessions,
+                       COUNT(CASE WHEN a.status IN ('Present', 'Late') THEN 1 END) as Attended_Sessions,
                        ROUND((COUNT(CASE WHEN a.status IN ('Present', 'Late') THEN 1 END)::NUMERIC / 
-                             NULLIF(COUNT(DISTINCT a.attendance_date), 0)) * 100, 2),
+                             NULLIF(COUNT(DISTINCT a.attendance_date), 0)) * 100, 2) as Attendance_Rate,
                        CASE WHEN (COUNT(CASE WHEN a.status IN ('Present', 'Late') THEN 1 END)::NUMERIC / 
                                  NULLIF(COUNT(DISTINCT a.attendance_date), 0)) < p_min_attendance_rate
-                       THEN TRUE ELSE FALSE END,
+                       THEN TRUE ELSE FALSE END as Excluded,
                        CASE WHEN (COUNT(CASE WHEN a.status IN ('Present', 'Late') THEN 1 END)::NUMERIC / 
                                  NULLIF(COUNT(DISTINCT a.attendance_date), 0)) < p_min_attendance_rate
-                       THEN 'Attendance below ' || (p_min_attendance_rate * 100)::TEXT || '% threshold'
-                       ELSE 'Attendance acceptable' END
+                       THEN 'Attendance below ' || CAST((p_min_attendance_rate * 100) AS TEXT) || '% threshold'
+                       ELSE 'Attendance acceptable' END as Reason
                 FROM Attendance a
                 JOIN Course c ON a.course_id = c.Course_ID AND a.dept_id = c.Department_ID
                 JOIN Department d ON a.dept_id = d.Department_id
@@ -479,7 +489,7 @@ class ReportingWindow(QMainWindow):
         try:
             cursor = self.db_connection.get_cursor()
             cursor.execute("""
-                SELECT c.Course_ID, c.Department_ID, c.name, d.name as dept_name
+                SELECT c.Course_ID, c.Department_ID, c.name as Course_Name, d.name as Department_Name
                 FROM Course c
                 JOIN Department d ON c.Department_ID = d.Department_id
                 ORDER BY d.name, c.name
@@ -621,7 +631,7 @@ class ReportingWindow(QMainWindow):
             JOIN Course c ON r.Course_ID = c.Course_ID AND r.Department_ID = c.Department_ID
             JOIN Department d ON r.Department_ID = d.Department_id
             JOIN Instructor i ON r.Instructor_ID = i.Instructor_ID
-            JOIN Enrollment e ON e.Course_ID = r.Course_ID AND e.Dept_ID = r.Department_ID
+            JOIN Enrollment e ON e.Course_ID = r.Course_ID AND e.Department_ID = r.Department_ID
             JOIN Student s ON e.Student_ID = s.Student_ID
             WHERE s.section_id = %s
             ORDER BY r.Reserv_Date, r.Start_Time
@@ -634,7 +644,7 @@ class ReportingWindow(QMainWindow):
             JOIN Course c ON r.Course_ID = c.Course_ID AND r.Department_ID = c.Department_ID
             JOIN Department d ON r.Department_ID = d.Department_id
             JOIN Instructor i ON r.Instructor_ID = i.Instructor_ID
-            JOIN Enrollment e ON e.Course_ID = r.Course_ID AND e.Dept_ID = r.Department_ID
+            JOIN Enrollment e ON e.Course_ID = r.Course_ID AND e.Department_ID = r.Department_ID
             JOIN Student s ON e.Student_ID = s.Student_ID
             WHERE s.section_id = {section_id}
             ORDER BY r.Reserv_Date, r.Start_Time"""
@@ -713,7 +723,7 @@ class ReportingWindow(QMainWindow):
         else:
             query = """
                 SELECT c.Course_ID, c.name as Course_Name, d.name as Department_Name,
-                       ROUND(AVG(m.mark)::NUMERIC, 2) as Average_Mark,
+                       ROUND(AVG(m.mark), 2) as Average_Mark,
                        COUNT(m.mark_id) as Mark_Count
                 FROM Marks m
                 JOIN Course c ON m.course_id = c.Course_ID AND m.dept_id = c.Department_ID

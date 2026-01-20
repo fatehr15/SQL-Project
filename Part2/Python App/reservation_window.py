@@ -163,10 +163,10 @@ class ReservationWindow(QMainWindow):
             
             # Load courses
             cursor.execute("""
-                SELECT c.Course_ID, c.Dept_ID as Department_ID, c.Course_Name as name, d.Dept_Name as dept_name
+                SELECT c.Course_ID, c.Department_ID, c.name as Course_Name, d.name as Department_Name
                 FROM Course c
-                JOIN Department d ON c.Dept_ID = d.Dept_ID
-                ORDER BY d.Dept_Name, c.Course_Name
+                JOIN Department d ON c.Department_ID = d.Department_id
+                ORDER BY d.name, c.name
             """)
             courses = cursor.fetchall()
             self.course_combo.clear()
@@ -176,10 +176,10 @@ class ReservationWindow(QMainWindow):
             
             # Load instructors
             cursor.execute("""
-                SELECT i.Instructor_ID, i.Lname as Last_Name, i.Fname as First_Name, d.Dept_Name as dept_name
+                SELECT i.Instructor_ID, i.Last_Name, i.First_Name, d.name as Department_Name
                 FROM Instructor i
-                JOIN Department d ON i.Dept_ID = d.Dept_ID
-                ORDER BY i.Lname, i.Fname
+                JOIN Department d ON i.Department_ID = d.Department_id
+                ORDER BY i.Last_Name, i.First_Name
             """)
             instructors = cursor.fetchall()
             self.instructor_combo.clear()
@@ -350,12 +350,12 @@ class ReservationWindow(QMainWindow):
         try:
             query = """
                 SELECT r.Reservation_ID, r.Building, r.RoomNo, 
-                       c.Course_Name, d.Dept_Name as Department_Name,
-                       i.Lname || ', ' || i.Fname as Instructor_Name,
+                       c.name as Course_Name, d.name as Department_Name,
+                       i.Last_Name || ', ' || i.First_Name as Instructor_Name,
                        r.Reserv_Date, r.Start_Time, r.End_Time, r.Hours_Number
                 FROM Reservation r
-                JOIN Course c ON r.Course_ID = c.Course_ID AND r.Department_ID = c.Dept_ID
-                JOIN Department d ON r.Department_ID = d.Dept_ID
+                JOIN Course c ON r.Course_ID = c.Course_ID AND r.Department_ID = c.Department_ID
+                JOIN Department d ON r.Department_ID = d.Department_id
                 JOIN Instructor i ON r.Instructor_ID = i.Instructor_ID
                 ORDER BY r.Reserv_Date DESC, r.Start_Time
             """
@@ -377,5 +377,12 @@ class ReservationWindow(QMainWindow):
             
             self.data_table.resizeColumnsToContents()
         except Exception as e:
-            QMessageBox.warning(self, 'Error', f'Failed to load reservations:\n{str(e)}')
+            import traceback
+            error_msg = f'Failed to load reservations:\n{str(e)}'
+            # Add helpful hints based on error type
+            if 'does not exist' in str(e) or 'no such table' in str(e).lower():
+                error_msg += '\n\nPossible causes:\n- Tables may not be initialized\n- Database schema may be missing'
+            elif 'column' in str(e).lower() and 'does not exist' in str(e).lower():
+                error_msg += '\n\nPossible causes:\n- Column name mismatch\n- Database schema may need updating'
+            QMessageBox.warning(self, 'Error', error_msg)
 

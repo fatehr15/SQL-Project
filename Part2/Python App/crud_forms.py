@@ -9,8 +9,7 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QTextEdit, QHeaderView)
 from PyQt5.QtCore import Qt, QDate
 from PyQt5.QtGui import QFont
-from db_connection import get_db_connection
-import psycopg2
+from window_base import get_connection_from_parent, show_error, show_info, show_warning, show_question
 
 
 class GenericCRUDForm(QWidget):
@@ -23,48 +22,57 @@ class GenericCRUDForm(QWidget):
         Args:
             table_name: Name of the database table
             columns_config: List of dicts with column configuration
-                Each dict should have: 'name', 'label', 'type', 'required', 'pk'
-            parent: Parent widget
+            parent: Parent widget (MainWindow or CRUDWindow)
         """
         super().__init__(parent)
-        # Allow optional construction for embedding/tests
         self.table_name = table_name or 'Generic'
         self.columns_config = columns_config or []
-        # Try to get connection from parent if available
-        if parent and hasattr(parent, 'db_connection') and parent.db_connection is not None:
-            self.db_connection = parent.db_connection
-        else:
-            self.db_connection = get_db_connection()
-            if self.db_connection is None:
-                raise Exception("No database connection available. Please check your database setup.")
-        self.db_connection.connect()
+        
+        # Get connection from parent
+        try:
+            self.db_connection = get_connection_from_parent(parent)
+        except Exception as e:
+            show_error(self, "Connection Error", str(e))
+            raise
+        
         self.current_edit_id = None
         self.init_ui()
+        
         # Only load data if we have a primary key defined
         try:
             if self.columns_config and self.get_primary_key_columns():
                 self.load_data()
-        except Exception:
-            # Safe fallback during headless instantiation
-            pass
+        except Exception as e:
+            print(f"Note: Could not load data: {e}")
     
     def init_ui(self):
         """Initialize the user interface."""
         layout = QVBoxLayout()
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
         self.setLayout(layout)
         
         # Title
-        title = QLabel(f'{self.table_name} Management')
-        title_font = QFont()
-        title_font.setPointSize(16)
-        title_font.setBold(True)
-        title.setFont(title_font)
+        title = QLabel(f'📋 {self.table_name} Management')
+        title.setFont(QFont('Segoe UI', 16, QFont.Bold))
         title.setAlignment(Qt.AlignCenter)
+        title.setStyleSheet("color: #2c3e50; padding: 10px;")
         layout.addWidget(title)
         
         # Form group
         form_group = QGroupBox('Data Entry')
+        form_group.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                border: 2px solid #dcdde1;
+                border-radius: 8px;
+                margin-top: 10px;
+                padding-top: 15px;
+                background-color: white;
+            }
+        """)
         form_layout = QFormLayout()
+        form_layout.setSpacing(12)
         form_group.setLayout(form_layout)
         
         self.input_fields = {}
@@ -77,7 +85,6 @@ class GenericCRUDForm(QWidget):
             if field_type == 'combo':
                 widget = QComboBox()
                 widget.setEditable(False)
-                # Populate combo from foreign key table or static values
                 if 'fk_table' in col and 'fk_display' in col:
                     self.populate_combo(widget, col['fk_table'], col['fk_display'], col.get('fk_value', 'id'))
                 elif 'combo_values' in col:
@@ -94,6 +101,7 @@ class GenericCRUDForm(QWidget):
                 widget.setMaximumHeight(80)
             else:
                 widget = QLineEdit()
+                widget.setStyleSheet("padding: 8px; border: 2px solid #dcdde1; border-radius: 5px;")
             
             if required:
                 label += ' *'
@@ -112,27 +120,27 @@ class GenericCRUDForm(QWidget):
         # Buttons
         button_layout = QHBoxLayout()
         
-        self.btn_create = QPushButton('Create')
+        self.btn_create = QPushButton('➕ Create')
         self.btn_create.clicked.connect(self.create_record)
-        self.btn_create.setStyleSheet("background-color: #27ae60; color: white; padding: 8px;")
+        self.btn_create.setStyleSheet("background-color: #27ae60; color: white; padding: 10px 20px; border-radius: 6px; font-weight: bold;")
         
-        self.btn_update = QPushButton('Update')
+        self.btn_update = QPushButton('✏️ Update')
         self.btn_update.clicked.connect(self.update_record)
-        self.btn_update.setStyleSheet("background-color: #f39c12; color: white; padding: 8px;")
+        self.btn_update.setStyleSheet("background-color: #f39c12; color: white; padding: 10px 20px; border-radius: 6px; font-weight: bold;")
         self.btn_update.setEnabled(False)
         
-        self.btn_delete = QPushButton('Delete')
+        self.btn_delete = QPushButton('🗑️ Delete')
         self.btn_delete.clicked.connect(self.delete_record)
-        self.btn_delete.setStyleSheet("background-color: #e74c3c; color: white; padding: 8px;")
+        self.btn_delete.setStyleSheet("background-color: #e74c3c; color: white; padding: 10px 20px; border-radius: 6px; font-weight: bold;")
         self.btn_delete.setEnabled(False)
         
-        self.btn_clear = QPushButton('Clear')
+        self.btn_clear = QPushButton('🔄 Clear')
         self.btn_clear.clicked.connect(self.clear_form)
-        self.btn_clear.setStyleSheet("background-color: #95a5a6; color: white; padding: 8px;")
+        self.btn_clear.setStyleSheet("background-color: #95a5a6; color: white; padding: 10px 20px; border-radius: 6px; font-weight: bold;")
         
-        self.btn_refresh = QPushButton('Refresh')
+        self.btn_refresh = QPushButton('🔃 Refresh')
         self.btn_refresh.clicked.connect(self.load_data)
-        self.btn_refresh.setStyleSheet("background-color: #3498db; color: white; padding: 8px;")
+        self.btn_refresh.setStyleSheet("background-color: #3498db; color: white; padding: 10px 20px; border-radius: 6px; font-weight: bold;")
         
         button_layout.addWidget(self.btn_create)
         button_layout.addWidget(self.btn_update)
@@ -144,8 +152,9 @@ class GenericCRUDForm(QWidget):
         layout.addLayout(button_layout)
         
         # Data table
-        table_label = QLabel('Records')
-        table_label.setFont(QFont('Arial', 12, QFont.Bold))
+        table_label = QLabel(f'📊 {self.table_name} Records')
+        table_label.setFont(QFont('Segoe UI', 12, QFont.Bold))
+        table_label.setStyleSheet("color: #2c3e50; padding: 5px;")
         layout.addWidget(table_label)
         
         self.data_table = QTableWidget()
@@ -154,12 +163,25 @@ class GenericCRUDForm(QWidget):
         self.data_table.itemSelectionChanged.connect(self.on_row_selected)
         self.data_table.horizontalHeader().setStretchLastSection(True)
         self.data_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        self.data_table.setStyleSheet("""
+            QTableWidget {
+                background-color: white;
+                border: 1px solid #dcdde1;
+                border-radius: 5px;
+            }
+            QHeaderView::section {
+                background-color: #34495e;
+                color: white;
+                padding: 8px;
+                font-weight: bold;
+            }
+        """)
         layout.addWidget(self.data_table)
     
     def populate_combo(self, combo, table, display_col, value_col):
         """Populate combo box from foreign key table."""
         try:
-            query = f"SELECT {value_col}, {display_col} FROM {table} ORDER BY {display_col}"
+            query = f'SELECT {value_col}, {display_col} FROM {table} ORDER BY {display_col}'
             cursor = self.db_connection.get_cursor()
             cursor.execute(query)
             results = cursor.fetchall()
@@ -168,7 +190,7 @@ class GenericCRUDForm(QWidget):
             for row in results:
                 combo.addItem(str(row[1]), row[0])
         except Exception as e:
-            QMessageBox.warning(self, 'Error', f'Failed to load {table}:\n{str(e)}')
+            show_warning(self, 'Error', f'Failed to load {table}:\n{str(e)}')
     
     def get_field_value(self, field_name):
         """Get value from input field."""
@@ -192,9 +214,7 @@ class GenericCRUDForm(QWidget):
         field_type = field['type']
         
         if field_type == 'combo':
-            # Try to find by data value first
             if value is not None and value != '':
-                # Try as integer if it's a numeric string
                 try:
                     int_value = int(value)
                     index = widget.findData(int_value)
@@ -204,18 +224,10 @@ class GenericCRUDForm(QWidget):
                 except (ValueError, TypeError):
                     pass
                 
-                # Try as string
                 index = widget.findData(str(value))
                 if index >= 0:
                     widget.setCurrentIndex(index)
                     return
-                
-                # Try to find by text
-                for i in range(widget.count()):
-                    if widget.itemText(i) == str(value):
-                        widget.setCurrentIndex(i)
-                        return
-            # If not found, set to first item (-- Select --)
             widget.setCurrentIndex(0)
         elif field_type == 'date':
             if value and str(value) != 'None' and str(value) != '':
@@ -230,11 +242,10 @@ class GenericCRUDForm(QWidget):
     def validate_form(self):
         """Validate form inputs."""
         for field_name, field in self.input_fields.items():
-            if field['required'] and not field['pk']:  # Don't require PK for updates
+            if field['required'] and not field['pk']:
                 value = self.get_field_value(field_name)
                 if not value or (isinstance(value, int) and value is None):
-                    QMessageBox.warning(self, 'Validation Error', 
-                                      f'{field["config"]["label"]} is required.')
+                    show_warning(self, 'Validation', f'{field["config"]["label"]} is required')
                     return False
         return True
     
@@ -264,25 +275,19 @@ class GenericCRUDForm(QWidget):
             return
         
         try:
-            # Get column names and values
             columns = []
             values = []
             placeholders = []
             
             for col in self.columns_config:
-                if not col.get('pk', False) or self.get_field_value(col['name']):  # Include PK if provided
+                if not col.get('pk', False) or self.get_field_value(col['name']):
                     columns.append(col['name'])
                     value = self.get_field_value(col['name'])
-                    # Convert empty strings to None for NULL values
                     if value == '' or (isinstance(value, str) and value.strip() == ''):
                         value = None
-                    # Convert combo box None to NULL
-                    if value is None and col.get('type') == 'combo':
-                        # Check if it's a required field
-                        if col.get('required', False):
-                            QMessageBox.warning(self, 'Validation Error', 
-                                              f'{col["label"]} is required.')
-                            return
+                    if value is None and col.get('type') == 'combo' and col.get('required', False):
+                        show_warning(self, 'Validation', f'{col["label"]} is required')
+                        return
                     values.append(value)
                     placeholders.append('%s')
             
@@ -292,44 +297,34 @@ class GenericCRUDForm(QWidget):
             cursor.execute(query, values)
             self.db_connection.commit()
             
-            QMessageBox.information(self, 'Success', 'Record created successfully!')
+            show_info(self, 'Success', 'Record created successfully!')
             self.clear_form()
             self.load_data()
-        except psycopg2.IntegrityError as e:
-            QMessageBox.warning(self, 'Database Error', 
-                              f'Failed to create record:\n{str(e)}\n\n'
-                              'This may be due to:\n'
-                              '- Duplicate primary key\n'
-                              '- Foreign key constraint violation\n'
-                              '- Unique constraint violation')
         except Exception as e:
-            QMessageBox.warning(self, 'Error', f'Failed to create record:\n{str(e)}')
+            show_error(self, 'Error', f'Failed to create record:\n{str(e)}')
     
     def update_record(self):
         """Update selected record."""
         if not self.current_edit_id:
-            QMessageBox.warning(self, 'Error', 'No record selected for update.')
+            show_warning(self, 'Error', 'No record selected')
             return
         
         if not self.validate_form():
             return
         
         try:
-            # Build SET clause
             pk_columns = self.get_primary_key_columns()
             set_clauses = []
             values = []
             
             for col in self.columns_config:
-                if not col.get('pk', False):  # Don't update PK
+                if not col.get('pk', False):
                     set_clauses.append(f"{col['name']} = %s")
                     value = self.get_field_value(col['name'])
-                    # Convert empty strings to None for NULL values
                     if value == '' or (isinstance(value, str) and value.strip() == ''):
                         value = None
                     values.append(value)
             
-            # Build WHERE clause for composite or single PK
             where_clauses = []
             for pk_col in pk_columns:
                 where_clauses.append(f"{pk_col} = %s")
@@ -341,32 +336,19 @@ class GenericCRUDForm(QWidget):
             cursor.execute(query, values)
             self.db_connection.commit()
             
-            if cursor.rowcount > 0:
-                QMessageBox.information(self, 'Success', 'Record updated successfully!')
-                self.clear_form()
-                self.load_data()
-            else:
-                QMessageBox.warning(self, 'Error', 'No record was updated.')
-        except psycopg2.IntegrityError as e:
-            QMessageBox.warning(self, 'Database Error', 
-                              f'Failed to update record:\n{str(e)}\n\n'
-                              'This may be due to:\n'
-                              '- Foreign key constraint violation\n'
-                              '- Unique constraint violation')
+            show_info(self, 'Success', 'Record updated!')
+            self.clear_form()
+            self.load_data()
         except Exception as e:
-            QMessageBox.warning(self, 'Error', f'Failed to update record:\n{str(e)}')
+            show_error(self, 'Error', f'Failed to update:\n{str(e)}')
     
     def delete_record(self):
         """Delete selected record."""
         if not self.current_edit_id:
-            QMessageBox.warning(self, 'Error', 'No record selected for deletion.')
+            show_warning(self, 'Error', 'No record selected')
             return
         
-        reply = QMessageBox.question(self, 'Confirm Delete', 
-                                    'Are you sure you want to delete this record?',
-                                    QMessageBox.Yes | QMessageBox.No)
-        
-        if reply != QMessageBox.Yes:
+        if not show_question(self, 'Confirm', 'Delete this record?'):
             return
         
         try:
@@ -384,34 +366,29 @@ class GenericCRUDForm(QWidget):
             cursor.execute(query, values)
             self.db_connection.commit()
             
-            if cursor.rowcount > 0:
-                QMessageBox.information(self, 'Success', 'Record deleted successfully!')
-                self.clear_form()
-                self.load_data()
-            else:
-                QMessageBox.warning(self, 'Error', 'No record was deleted.')
-        except psycopg2.IntegrityError as e:
-            error_msg = str(e)
-            if 'foreign key' in error_msg.lower() or 'still referenced' in error_msg.lower():
-                QMessageBox.warning(self, 'Delete Error', 
-                                  f'Cannot delete this record:\n\n'
-                                  f'This record is referenced by other tables.\n'
-                                  f'Please delete related records first.\n\n'
-                                  f'Database error: {error_msg}')
-            else:
-                QMessageBox.warning(self, 'Database Error', 
-                                  f'Failed to delete record:\n{error_msg}')
+            show_info(self, 'Success', 'Record deleted!')
+            self.clear_form()
+            self.load_data()
         except Exception as e:
-            QMessageBox.warning(self, 'Error', f'Failed to delete record:\n{str(e)}')
+            show_error(self, 'Error', f'Failed to delete:\n{str(e)}\n\nRecord may be referenced by other tables.')
     
     def load_data(self):
         """Load and display data in table."""
         try:
-            query = f"SELECT * FROM {self.table_name} ORDER BY {self.get_primary_key_columns()[0]}"
+            pk_columns = self.get_primary_key_columns()
+            if not pk_columns:
+                show_warning(self, 'Error', 'No primary key defined')
+                return
+            
+            query = f"SELECT * FROM {self.table_name} ORDER BY {pk_columns[0]}"
             cursor = self.db_connection.get_cursor()
             cursor.execute(query)
             results = cursor.fetchall()
-            column_names = [desc[0] for desc in cursor.description]
+            
+            if cursor.description:
+                column_names = [desc[0] for desc in cursor.description]
+            else:
+                column_names = [col['name'] for col in self.columns_config]
             
             self.data_table.setRowCount(len(results))
             self.data_table.setColumnCount(len(column_names))
@@ -425,7 +402,7 @@ class GenericCRUDForm(QWidget):
             
             self.data_table.resizeColumnsToContents()
         except Exception as e:
-            QMessageBox.warning(self, 'Error', f'Failed to load data:\n{str(e)}')
+            show_error(self, 'Error', f'Failed to load data:\n{str(e)}')
     
     def on_row_selected(self):
         """Handle row selection in data table."""
@@ -434,19 +411,6 @@ class GenericCRUDForm(QWidget):
             return
         
         row = selected_rows[0].row()
-        pk_columns = self.get_primary_key_columns()
-        
-        # Get PK values from selected row
-        pk_values = {}
-        for pk_col in pk_columns:
-            col_idx = None
-            for i in range(self.data_table.columnCount()):
-                if self.data_table.horizontalHeaderItem(i).text() == pk_col:
-                    col_idx = i
-                    break
-            if col_idx is not None:
-                item = self.data_table.item(row, col_idx)
-                pk_values[pk_col] = item.text() if item else None
         
         # Load data into form
         for col in self.columns_config:
@@ -459,40 +423,33 @@ class GenericCRUDForm(QWidget):
             if col_idx is not None:
                 item = self.data_table.item(row, col_idx)
                 value = item.text() if item else None
-                
-                # For combo boxes with foreign keys, we need to find the ID
-                # The table shows the display value, but we need the key value
-                if col.get('type') == 'combo' and 'fk_table' in col:
-                    # Try to find the matching item in combo by display text
-                    combo_widget = self.input_fields[col_name]['widget']
-                    # The value from table is the display text, find matching item
-                    for i in range(combo_widget.count()):
-                        if combo_widget.itemText(i) == value:
-                            combo_widget.setCurrentIndex(i)
-                            break
-                else:
-                    self.set_field_value(col_name, value)
+                self.set_field_value(col_name, value)
         
-        # Store PK for update/delete
+        pk_columns = self.get_primary_key_columns()
         if len(pk_columns) == 1:
-            self.current_edit_id = pk_values.get(pk_columns[0])
-        else:
-            self.current_edit_id = tuple(pk_values.get(pk, None) for pk in pk_columns)
+            pk_idx = 0
+            for i in range(self.data_table.columnCount()):
+                if self.data_table.horizontalHeaderItem(i).text() == pk_columns[0]:
+                    pk_idx = i
+                    break
+            item = self.data_table.item(row, pk_idx)
+            self.current_edit_id = item.text() if item else None
         
         self.btn_update.setEnabled(True)
         self.btn_delete.setEnabled(True)
         self.btn_create.setEnabled(False)
 
 
-def get_department_form():
+# Factory functions - Accept parent parameter
+def get_department_form(parent=None):
     """Get Department table form configuration."""
     return GenericCRUDForm('Department', [
         {'name': 'Department_id', 'label': 'Department ID', 'type': 'text', 'required': True, 'pk': True},
         {'name': 'name', 'label': 'Department Name', 'type': 'text', 'required': True, 'pk': False}
-    ])
+    ], parent)
 
 
-def get_student_form():
+def get_student_form(parent=None):
     """Get Student table form configuration."""
     return GenericCRUDForm('Student', [
         {'name': 'Student_ID', 'label': 'Student ID', 'type': 'text', 'required': True, 'pk': True},
@@ -505,12 +462,12 @@ def get_student_form():
         {'name': 'Phone', 'label': 'Phone', 'type': 'text', 'required': False, 'pk': False},
         {'name': 'Fax', 'label': 'Fax', 'type': 'text', 'required': False, 'pk': False},
         {'name': 'Email', 'label': 'Email', 'type': 'text', 'required': False, 'pk': False}
-    ])
+    ], parent)
 
 
-def get_instructor_form():
+def get_instructor_form(parent=None):
     """Get Instructor table form configuration."""
-    form = GenericCRUDForm('Instructor', [
+    return GenericCRUDForm('Instructor', [
         {'name': 'Instructor_ID', 'label': 'Instructor ID', 'type': 'text', 'required': True, 'pk': True},
         {'name': 'Department_ID', 'label': 'Department', 'type': 'combo', 'required': True, 'pk': False,
          'fk_table': 'Department', 'fk_display': 'name', 'fk_value': 'Department_id'},
@@ -521,25 +478,15 @@ def get_instructor_form():
         {'name': 'Phone', 'label': 'Phone', 'type': 'text', 'required': False, 'pk': False},
         {'name': 'Fax', 'label': 'Fax', 'type': 'text', 'required': False, 'pk': False},
         {'name': 'Email', 'label': 'Email', 'type': 'text', 'required': False, 'pk': False}
-    ])
-    # Populate Rank combo with allowed values
-    rank_field = form.input_fields['Rank']
-    rank_combo = rank_field['widget']
-    rank_combo.clear()
-    rank_combo.addItem('-- Select --', None)
-    for rank_value in ['Substitute', 'MCB', 'MCA', 'PROF']:
-        rank_combo.addItem(rank_value, rank_value)
-    return form
+    ], parent)
 
 
-def get_course_form():
+def get_course_form(parent=None):
     """Get Course table form configuration."""
-    form = GenericCRUDForm('Course', [
+    return GenericCRUDForm('Course', [
         {'name': 'Course_ID', 'label': 'Course ID', 'type': 'text', 'required': True, 'pk': True},
         {'name': 'Department_ID', 'label': 'Department', 'type': 'combo', 'required': True, 'pk': True,
          'fk_table': 'Department', 'fk_display': 'name', 'fk_value': 'Department_id'},
         {'name': 'name', 'label': 'Course Name', 'type': 'text', 'required': True, 'pk': False},
         {'name': 'Description', 'label': 'Description', 'type': 'text_area', 'required': False, 'pk': False}
-    ])
-    return form
-
+    ], parent)

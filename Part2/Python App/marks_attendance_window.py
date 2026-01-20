@@ -9,9 +9,7 @@ from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QDoubleSpinBox, QTabWidget, QHeaderView, QLineEdit)
 from PyQt5.QtCore import Qt, QDate
 from PyQt5.QtGui import QFont
-from db_connection import get_db_connection
-import psycopg2
-import os
+from window_base import get_connection_from_parent, is_demo_mode, show_error, show_info, show_warning
 
 
 class MarksAttendanceWindow(QMainWindow):
@@ -19,31 +17,46 @@ class MarksAttendanceWindow(QMainWindow):
     
     def __init__(self, parent=None):
         super().__init__(parent)
-        # Try to get connection from parent (MainWindow) if available
-        if parent and hasattr(parent, 'db_connection') and parent.db_connection is not None:
-            self.db_connection = parent.db_connection
-        else:
-            self.db_connection = get_db_connection()
-            if self.db_connection is None:
-                raise Exception("No database connection available. Please check your database setup.")
-        self.db_connection.connect()
+        
+        try:
+            self.db_connection = get_connection_from_parent(parent)
+            self.is_demo = is_demo_mode(self.db_connection)
+        except Exception as e:
+            show_error(self, "Connection Error", str(e))
+            raise
+        
         self.current_mark_id = None
         self.init_ui()
+        self.ensure_tables()
         self.load_dropdowns()
         self.load_marks_data()
         self.load_attendance_data()
-        self.ensure_attendance_table()
     
-    def ensure_attendance_table(self):
-        """Ensure Attendance table exists, create if not."""
+    def ensure_tables(self):
+        """Ensure Marks and Attendance tables exist."""
         try:
             cursor = self.db_connection.get_cursor()
-            # Check if table exists (Postgres vs SQLite)
-            if os.getenv('USE_DEMO_DB', '0') == '1':
+            
+            if self.is_demo:
+                # SQLite - check and create Marks table
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='Marks'")
+                if not cursor.fetchone():
+                    cursor.execute("""
+                        CREATE TABLE Marks (
+                            mark_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            student_id INTEGER NOT NULL,
+                            course_id INTEGER NOT NULL,
+                            dept_id INTEGER NOT NULL,
+                            mark REAL NOT NULL CHECK (mark >= 0 AND mark <= 20),
+                            mark_date DATE NOT NULL DEFAULT (date('now')),
+                            FOREIGN KEY(student_id) REFERENCES Student(Student_ID),
+                            FOREIGN KEY(course_id, dept_id) REFERENCES Course(Course_ID, Department_ID)
+                        )
+                    """)
+                
+                # Check and create Attendance table
                 cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='Attendance'")
-                exists = cursor.fetchone() is not None
-                if not exists:
-                    # Create attendance table (SQLite-compatible)
+                if not cursor.fetchone():
                     cursor.execute("""
                         CREATE TABLE Attendance (
                             attendance_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -52,21 +65,42 @@ class MarksAttendanceWindow(QMainWindow):
                             dept_id INTEGER NOT NULL,
                             attendance_date DATE NOT NULL DEFAULT (date('now')),
                             status VARCHAR(20) NOT NULL,
-                            notes TEXT
+                            notes TEXT,
+                            FOREIGN KEY(student_id) REFERENCES Student(Student_ID),
+                            FOREIGN KEY(course_id, dept_id) REFERENCES Course(Course_ID, Department_ID)
                         )
                     """)
-                    self.db_connection.commit()
+                
+                self.db_connection.commit()
             else:
-                # Postgres: check via information_schema
+                # PostgreSQL - check via information_schema
                 cursor.execute("""
                     SELECT EXISTS (
                         SELECT FROM information_schema.tables 
-                        WHERE table_schema = 'public' 
-                        AND table_name = 'attendance'
+                        WHERE table_schema = 'public' AND table_name = 'marks'
                     )
                 """)
                 if not cursor.fetchone()[0]:
-                    # Create attendance table
+                    cursor.execute("""
+                        CREATE TABLE Marks (
+                            mark_id SERIAL PRIMARY KEY,
+                            student_id INT NOT NULL,
+                            course_id INT NOT NULL,
+                            dept_id INT NOT NULL,
+                            mark NUMERIC(4,2) NOT NULL CHECK (mark >= 0 AND mark <= 20),
+                            mark_date DATE NOT NULL DEFAULT CURRENT_DATE,
+                            FOREIGN KEY(student_id) REFERENCES Student(Student_ID),
+                            FOREIGN KEY(course_id, dept_id) REFERENCES Course(Course_ID, Department_ID)
+                        )
+                    """)
+                
+                cursor.execute("""
+                    SELECT EXISTS (
+                        SELECT FROM information_schema.tables 
+                        WHERE table_schema = 'public' AND table_name = 'attendance'
+                    )
+                """)
+                if not cursor.fetchone()[0]:
                     cursor.execute("""
                         CREATE TABLE Attendance (
                             attendance_id SERIAL PRIMARY KEY,
@@ -76,334 +110,356 @@ class MarksAttendanceWindow(QMainWindow):
                             attendance_date DATE NOT NULL DEFAULT CURRENT_DATE,
                             status VARCHAR(20) NOT NULL CHECK (status IN ('Present', 'Absent', 'Late', 'Excused')),
                             notes TEXT,
-                            FOREIGN KEY(student_id) REFERENCES Student(student_id),
-                            FOREIGN KEY(course_id, dept_id) REFERENCES Course(course_id, department_id)
+                            FOREIGN KEY(student_id) REFERENCES Student(Student_ID),
+                            FOREIGN KEY(course_id, dept_id) REFERENCES Course(Course_ID, Department_ID)
                         )
-                    """)
-                    self.db_connection.commit()
+                    """))
+                
+                self.db_connection.commit()
         except Exception as e:
-            print(f"Note: Attendance table check/create: {e}")
+            print(f"Note: Table creation: {e}")
     
     def init_ui(self):
         """Initialize the user interface."""
-        self.setWindowTitle('Marks & Attendance Management')
+        self.setWindowTitle('✍ Marks & Attendance Management')
         self.setGeometry(50, 50, 1400, 900)
         
-        # Central widget
+        self.setStyleSheet("""
+            QMainWindow {
+                background-color: #f5f6fa;
+            }
+            QGroupBox {
+                font-weight: bold;
+                border: 2px solid #dcdde1;
+                border-radius: 8px;
+                margin-top: 10px;
+                padding-top: 15px;
+                background-color: white;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 15px;
+                padding: 0 5px;
+                color: #2c3e50;
+            }
+            QLineEdit, QComboBox, QDateEdit, QDoubleSpinBox {
+                padding: 8px;
+                border: 2px solid #dcdde1;
+                border-radius: 5px;
+                background-color: white;
+            }
+            QLineEdit:focus, QComboBox:focus, QDateEdit:focus, QDoubleSpinBox:focus {
+                border: 2px solid #3498db;
+            }
+            QPushButton {
+                padding: 10px 20px;
+                border: none;
+                border-radius: 6px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                opacity: 0.9;
+            }
+            QTableWidget {
+                background-color: white;
+                border: 1px solid #dcdde1;
+                border-radius: 5px;
+            }
+            QHeaderView::section {
+                background-color: #34495e;
+                color: white;
+                padding: 8px;
+                border: none;
+                font-weight: bold;
+            }
+        """)
+        
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         
-        # Main layout
         main_layout = QVBoxLayout()
+        main_layout.setContentsMargins(30, 30, 30, 30)
+        main_layout.setSpacing(20)
         central_widget.setLayout(main_layout)
         
         # Title
-        title = QLabel('Marks & Attendance Management')
-        title_font = QFont()
-        title_font.setPointSize(18)
-        title_font.setBold(True)
-        title.setFont(title_font)
+        title = QLabel('✍ Marks & Attendance Management')
+        title.setFont(QFont('Segoe UI', 20, QFont.Bold))
         title.setAlignment(Qt.AlignCenter)
+        title.setStyleSheet("color: #2c3e50; padding: 10px;")
         main_layout.addWidget(title)
         
-        # Tab widget for Marks and Attendance
+        # Tab widget
         self.tabs = QTabWidget()
+        self.tabs.setStyleSheet("""
+            QTabWidget::pane {
+                border: 2px solid #dcdde1;
+                border-radius: 5px;
+                background-color: white;
+            }
+            QTabBar::tab {
+                background-color: #ecf0f1;
+                padding: 10px 20px;
+                margin-right: 5px;
+                border-top-left-radius: 5px;
+                border-top-right-radius: 5px;
+            }
+            QTabBar::tab:selected {
+                background-color: white;
+                border-bottom: 2px solid white;
+            }
+        """)
         main_layout.addWidget(self.tabs)
         
-        # Marks Tab
+        # Create tabs
+        self.create_marks_tab()
+        self.create_attendance_tab()
+    
+    def create_marks_tab(self):
+        """Create the marks management tab."""
         marks_tab = QWidget()
         marks_layout = QVBoxLayout()
+        marks_layout.setContentsMargins(20, 20, 20, 20)
+        marks_layout.setSpacing(15)
         marks_tab.setLayout(marks_layout)
         
         # Marks form
-        marks_form_group = QGroupBox('Marks Entry')
+        marks_form_group = QGroupBox('📝 Marks Entry')
         marks_form_layout = QFormLayout()
+        marks_form_layout.setSpacing(12)
         marks_form_group.setLayout(marks_form_layout)
         
-        # Student selection
         self.student_combo = QComboBox()
-        self.student_combo.setEditable(False)
         marks_form_layout.addRow('Student *', self.student_combo)
         
-        # Course selection
         self.marks_course_combo = QComboBox()
-        self.marks_course_combo.setEditable(False)
         marks_form_layout.addRow('Course *', self.marks_course_combo)
         
-        # Mark value
         self.mark_value = QDoubleSpinBox()
-        self.mark_value.setMinimum(0.0)
-        self.mark_value.setMaximum(20.0)
+        self.mark_value.setRange(0.0, 20.0)
         self.mark_value.setDecimals(2)
         self.mark_value.setSingleStep(0.5)
         marks_form_layout.addRow('Mark (0-20) *', self.mark_value)
         
-        # Mark date
         self.mark_date = QDateEdit()
         self.mark_date.setCalendarPopup(True)
         self.mark_date.setDate(QDate.currentDate())
-        self.mark_date.setDisplayFormat('yyyy-MM-dd')
         marks_form_layout.addRow('Mark Date *', self.mark_date)
         
         marks_layout.addWidget(marks_form_group)
         
-        # Marks buttons
-        marks_button_layout = QHBoxLayout()
+        # Buttons
+        btn_layout = QHBoxLayout()
         
-        self.btn_add_mark = QPushButton('Add Mark')
+        self.btn_add_mark = QPushButton('➕ Add Mark')
         self.btn_add_mark.clicked.connect(self.add_mark)
-        self.btn_add_mark.setStyleSheet("background-color: #27ae60; color: white; padding: 8px;")
+        self.btn_add_mark.setStyleSheet("background-color: #27ae60; color: white;")
         
-        self.btn_update_mark = QPushButton('Update Mark')
+        self.btn_update_mark = QPushButton('✏️ Update Mark')
         self.btn_update_mark.clicked.connect(self.update_mark)
-        self.btn_update_mark.setStyleSheet("background-color: #f39c12; color: white; padding: 8px;")
+        self.btn_update_mark.setStyleSheet("background-color: #f39c12; color: white;")
         self.btn_update_mark.setEnabled(False)
         
-        self.btn_clear_mark = QPushButton('Clear')
+        self.btn_clear_mark = QPushButton('🔄 Clear')
         self.btn_clear_mark.clicked.connect(self.clear_marks_form)
-        self.btn_clear_mark.setStyleSheet("background-color: #95a5a6; color: white; padding: 8px;")
+        self.btn_clear_mark.setStyleSheet("background-color: #95a5a6; color: white;")
         
-        self.btn_refresh_marks = QPushButton('Refresh')
+        self.btn_refresh_marks = QPushButton('🔃 Refresh')
         self.btn_refresh_marks.clicked.connect(self.load_marks_data)
-        self.btn_refresh_marks.setStyleSheet("background-color: #3498db; color: white; padding: 8px;")
+        self.btn_refresh_marks.setStyleSheet("background-color: #3498db; color: white;")
         
-        marks_button_layout.addWidget(self.btn_add_mark)
-        marks_button_layout.addWidget(self.btn_update_mark)
-        marks_button_layout.addWidget(self.btn_clear_mark)
-        marks_button_layout.addWidget(self.btn_refresh_marks)
-        marks_button_layout.addStretch()
+        btn_layout.addWidget(self.btn_add_mark)
+        btn_layout.addWidget(self.btn_update_mark)
+        btn_layout.addWidget(self.btn_clear_mark)
+        btn_layout.addWidget(self.btn_refresh_marks)
+        btn_layout.addStretch()
         
-        marks_layout.addLayout(marks_button_layout)
+        marks_layout.addLayout(btn_layout)
         
-        # Marks table
-        marks_table_label = QLabel('Student Marks')
-        marks_table_label.setFont(QFont('Arial', 12, QFont.Bold))
-        marks_layout.addWidget(marks_table_label)
-        
+        # Table
         self.marks_table = QTableWidget()
         self.marks_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.marks_table.setSelectionMode(QTableWidget.SingleSelection)
         self.marks_table.itemSelectionChanged.connect(self.on_mark_selected)
         self.marks_table.horizontalHeader().setStretchLastSection(True)
-        self.marks_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         marks_layout.addWidget(self.marks_table)
         
-        self.tabs.addTab(marks_tab, 'Marks')
-        
-        # Attendance Tab
+        self.tabs.addTab(marks_tab, '📝 Marks')
+    
+    def create_attendance_tab(self):
+        """Create the attendance management tab."""
         attendance_tab = QWidget()
         attendance_layout = QVBoxLayout()
+        attendance_layout.setContentsMargins(20, 20, 20, 20)
+        attendance_layout.setSpacing(15)
         attendance_tab.setLayout(attendance_layout)
         
-        # Attendance form
-        attendance_form_group = QGroupBox('Attendance Entry')
-        attendance_form_layout = QFormLayout()
-        attendance_form_group.setLayout(attendance_form_layout)
+        # Form
+        form_group = QGroupBox('✅ Attendance Entry')
+        form_layout = QFormLayout()
+        form_layout.setSpacing(12)
+        form_group.setLayout(form_layout)
         
-        # Student selection for attendance
         self.attendance_student_combo = QComboBox()
-        self.attendance_student_combo.setEditable(False)
-        attendance_form_layout.addRow('Student *', self.attendance_student_combo)
+        form_layout.addRow('Student *', self.attendance_student_combo)
         
-        # Course selection for attendance
         self.attendance_course_combo = QComboBox()
-        self.attendance_course_combo.setEditable(False)
-        attendance_form_layout.addRow('Course *', self.attendance_course_combo)
+        form_layout.addRow('Course *', self.attendance_course_combo)
         
-        # Attendance date
         self.attendance_date = QDateEdit()
         self.attendance_date.setCalendarPopup(True)
         self.attendance_date.setDate(QDate.currentDate())
-        self.attendance_date.setDisplayFormat('yyyy-MM-dd')
-        attendance_form_layout.addRow('Date *', self.attendance_date)
+        form_layout.addRow('Date *', self.attendance_date)
         
-        # Status
         self.attendance_status = QComboBox()
         self.attendance_status.addItems(['Present', 'Absent', 'Late', 'Excused'])
-        attendance_form_layout.addRow('Status *', self.attendance_status)
+        form_layout.addRow('Status *', self.attendance_status)
         
-        # Notes
         self.attendance_notes = QLineEdit()
-        attendance_form_layout.addRow('Notes', self.attendance_notes)
+        form_layout.addRow('Notes', self.attendance_notes)
         
-        attendance_layout.addWidget(attendance_form_group)
+        attendance_layout.addWidget(form_group)
         
-        # Attendance buttons
-        attendance_button_layout = QHBoxLayout()
+        # Buttons
+        btn_layout = QHBoxLayout()
         
-        self.btn_add_attendance = QPushButton('Record Attendance')
+        self.btn_add_attendance = QPushButton('➕ Record Attendance')
         self.btn_add_attendance.clicked.connect(self.add_attendance)
-        self.btn_add_attendance.setStyleSheet("background-color: #27ae60; color: white; padding: 8px;")
+        self.btn_add_attendance.setStyleSheet("background-color: #27ae60; color: white;")
         
-        self.btn_refresh_attendance = QPushButton('Refresh')
+        self.btn_refresh_attendance = QPushButton('🔃 Refresh')
         self.btn_refresh_attendance.clicked.connect(self.load_attendance_data)
-        self.btn_refresh_attendance.setStyleSheet("background-color: #3498db; color: white; padding: 8px;")
+        self.btn_refresh_attendance.setStyleSheet("background-color: #3498db; color: white;")
         
-        self.btn_clear_attendance = QPushButton('Clear')
+        self.btn_clear_attendance = QPushButton('🔄 Clear')
         self.btn_clear_attendance.clicked.connect(self.clear_attendance_form)
-        self.btn_clear_attendance.setStyleSheet("background-color: #95a5a6; color: white; padding: 8px;")
+        self.btn_clear_attendance.setStyleSheet("background-color: #95a5a6; color: white;")
         
-        attendance_button_layout.addWidget(self.btn_add_attendance)
-        attendance_button_layout.addWidget(self.btn_refresh_attendance)
-        attendance_button_layout.addWidget(self.btn_clear_attendance)
-        attendance_button_layout.addStretch()
+        btn_layout.addWidget(self.btn_add_attendance)
+        btn_layout.addWidget(self.btn_refresh_attendance)
+        btn_layout.addWidget(self.btn_clear_attendance)
+        btn_layout.addStretch()
         
-        attendance_layout.addLayout(attendance_button_layout)
+        attendance_layout.addLayout(btn_layout)
         
-        # Attendance table
-        attendance_table_label = QLabel('Attendance Records')
-        attendance_table_label.setFont(QFont('Arial', 12, QFont.Bold))
-        attendance_layout.addWidget(attendance_table_label)
-        
+        # Table
         self.attendance_table = QTableWidget()
         self.attendance_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.attendance_table.horizontalHeader().setStretchLastSection(True)
-        self.attendance_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         attendance_layout.addWidget(self.attendance_table)
         
-        self.tabs.addTab(attendance_tab, 'Attendance')
+        self.tabs.addTab(attendance_tab, '✅ Attendance')
     
     def load_dropdowns(self):
         """Load data for combo boxes."""
         try:
             cursor = self.db_connection.get_cursor()
             
-            # Load students
-            cursor.execute("""
-                SELECT Student_ID, First_Name, Last_Name 
-                FROM Student 
-                ORDER BY Last_Name, First_Name
-            """)
+            # Students
+            cursor.execute("SELECT Student_ID, First_Name, Last_Name FROM Student ORDER BY Last_Name, First_Name")
             students = cursor.fetchall()
+            
             self.student_combo.clear()
             self.attendance_student_combo.clear()
-            for student_id, first_name, last_name in students:
-                display_text = f"{last_name}, {first_name} (ID: {student_id})"
-                self.student_combo.addItem(display_text, student_id)
-                self.attendance_student_combo.addItem(display_text, student_id)
+            for sid, fname, lname in students:
+                text = f"{lname}, {fname} (ID: {sid})"
+                self.student_combo.addItem(text, sid)
+                self.attendance_student_combo.addItem(text, sid)
             
-            # Load courses
+            # Courses
             cursor.execute("""
-                SELECT c.Course_ID, c.Department_ID, c.name, d.name as dept_name
+                SELECT c.Course_ID, c.Department_ID, c.name, d.name 
                 FROM Course c
                 JOIN Department d ON c.Department_ID = d.Department_id
                 ORDER BY d.name, c.name
             """)
             courses = cursor.fetchall()
+            
             self.marks_course_combo.clear()
             self.attendance_course_combo.clear()
-            for course_id, dept_id, course_name, dept_name in courses:
-                display_text = f"{course_name} (Dept: {dept_name}, ID: {course_id}/{dept_id})"
-                self.marks_course_combo.addItem(display_text, (course_id, dept_id))
-                self.attendance_course_combo.addItem(display_text, (course_id, dept_id))
-                
+            for cid, did, cname, dname in courses:
+                text = f"{cname} ({dname}, ID: {cid}/{did})"
+                self.marks_course_combo.addItem(text, (cid, did))
+                self.attendance_course_combo.addItem(text, (cid, did))
         except Exception as e:
-            QMessageBox.warning(self, 'Error', f'Failed to load dropdown data:\n{str(e)}')
+            show_warning(self, 'Load Error', f'Failed to load dropdowns:\n{str(e)}')
     
     def add_mark(self):
         """Add a new mark."""
         try:
-            student_id = self.student_combo.currentData()
+            sid = self.student_combo.currentData()
             course_data = self.marks_course_combo.currentData()
             
-            if student_id is None or course_data is None:
-                QMessageBox.warning(self, 'Validation Error', 'Please select both student and course.')
+            if not sid or not course_data:
+                show_warning(self, 'Validation', 'Select student and course')
                 return
             
-            course_id, dept_id = course_data
-            mark_value = self.mark_value.value()
-            mark_date = self.mark_date.date().toString('yyyy-MM-dd')
+            cid, did = course_data
+            mark = self.mark_value.value()
+            date = self.mark_date.date().toString('yyyy-MM-dd')
             
             cursor = self.db_connection.get_cursor()
-            query = """
-                INSERT INTO Marks (student_id, course_id, dept_id, mark, mark_date)
-                VALUES (%s, %s, %s, %s, %s::date)
-            """
-            cursor.execute(query, (student_id, course_id, dept_id, mark_value, mark_date))
+            cursor.execute(
+                "INSERT INTO Marks (student_id, course_id, dept_id, mark, mark_date) VALUES (%s, %s, %s, %s, %s)",
+                (sid, cid, did, mark, date)
+            )
             self.db_connection.commit()
             
-            QMessageBox.information(self, 'Success', 'Mark added successfully!')
+            show_info(self, 'Success', 'Mark added successfully!')
             self.clear_marks_form()
             self.load_marks_data()
-            
-        except psycopg2.IntegrityError as e:
-            QMessageBox.warning(self, 'Database Error', 
-                              f'Failed to add mark:\n{str(e)}\n\n'
-                              'This may be due to:\n'
-                              '- Foreign key constraint violation\n'
-                              '- Invalid mark value')
         except Exception as e:
-            QMessageBox.warning(self, 'Error', f'Failed to add mark:\n{str(e)}')
+            show_error(self, 'Error', f'Failed to add mark:\n{str(e)}')
     
     def update_mark(self):
         """Update selected mark."""
         if not self.current_mark_id:
-            QMessageBox.warning(self, 'Error', 'No mark selected for update.')
+            show_warning(self, 'Error', 'No mark selected')
             return
         
         try:
-            mark_value = self.mark_value.value()
-            mark_date = self.mark_date.date().toString('yyyy-MM-dd')
+            mark = self.mark_value.value()
+            date = self.mark_date.date().toString('yyyy-MM-dd')
             
             cursor = self.db_connection.get_cursor()
-            query = """
-                UPDATE Marks 
-                SET mark = %s, mark_date = %s::date
-                WHERE mark_id = %s
-            """
-            cursor.execute(query, (mark_value, mark_date, self.current_mark_id))
+            cursor.execute(
+                "UPDATE Marks SET mark = %s, mark_date = %s WHERE mark_id = %s",
+                (mark, date, self.current_mark_id)
+            )
             self.db_connection.commit()
             
-            if cursor.rowcount > 0:
-                QMessageBox.information(self, 'Success', 'Mark updated successfully!')
-                self.clear_marks_form()
-                self.load_marks_data()
-            else:
-                QMessageBox.warning(self, 'Error', 'No mark was updated.')
-                
+            show_info(self, 'Success', 'Mark updated!')
+            self.clear_marks_form()
+            self.load_marks_data()
         except Exception as e:
-            QMessageBox.warning(self, 'Error', f'Failed to update mark:\n{str(e)}')
+            show_error(self, 'Error', f'Failed to update:\n{str(e)}')
     
     def on_mark_selected(self):
-        """Handle mark selection in table."""
-        selected_rows = self.marks_table.selectedItems()
-        if not selected_rows:
+        """Handle mark selection."""
+        items = self.marks_table.selectedItems()
+        if not items:
             return
         
-        row = selected_rows[0].row()
+        row = items[0].row()
+        self.current_mark_id = int(self.marks_table.item(row, 0).text())
         
-        # Get mark_id from first column
-        mark_id_item = self.marks_table.item(row, 0)
-        if mark_id_item:
-            self.current_mark_id = int(mark_id_item.text())
+        # Load into form
+        sid = int(self.marks_table.item(row, 1).text())
+        cid = int(self.marks_table.item(row, 2).text())
+        did = int(self.marks_table.item(row, 3).text())
+        mark = float(self.marks_table.item(row, 7).text())
+        date_str = self.marks_table.item(row, 8).text()
         
-        # Load data into form
-        student_id_item = self.marks_table.item(row, 1)
-        course_id_item = self.marks_table.item(row, 2)
-        dept_id_item = self.marks_table.item(row, 3)
-        mark_item = self.marks_table.item(row, 4)
-        date_item = self.marks_table.item(row, 5)
+        idx = self.student_combo.findData(sid)
+        if idx >= 0:
+            self.student_combo.setCurrentIndex(idx)
         
-        if student_id_item:
-            student_id = int(student_id_item.text())
-            index = self.student_combo.findData(student_id)
-            if index >= 0:
-                self.student_combo.setCurrentIndex(index)
+        idx = self.marks_course_combo.findData((cid, did))
+        if idx >= 0:
+            self.marks_course_combo.setCurrentIndex(idx)
         
-        if course_id_item and dept_id_item:
-            course_id = int(course_id_item.text())
-            dept_id = int(dept_id_item.text())
-            index = self.marks_course_combo.findData((course_id, dept_id))
-            if index >= 0:
-                self.marks_course_combo.setCurrentIndex(index)
-        
-        if mark_item:
-            self.mark_value.setValue(float(mark_item.text()))
-        
-        if date_item:
-            date = QDate.fromString(date_item.text(), 'yyyy-MM-dd')
-            if date.isValid():
-                self.mark_date.setDate(date)
+        self.mark_value.setValue(mark)
+        self.mark_date.setDate(QDate.fromString(date_str, 'yyyy-MM-dd'))
         
         self.btn_update_mark.setEnabled(True)
         self.btn_add_mark.setEnabled(False)
@@ -419,73 +475,64 @@ class MarksAttendanceWindow(QMainWindow):
         self.btn_add_mark.setEnabled(True)
     
     def load_marks_data(self):
-        """Load and display marks."""
+        """Load marks table data."""
         try:
-            query = """
+            cursor = self.db_connection.get_cursor()
+            cursor.execute("""
                 SELECT m.mark_id, m.student_id, m.course_id, m.dept_id,
-                       s.Last_Name || ', ' || s.First_Name as Student_Name,
-                       c.name as Course_Name, d.name as Department_Name,
+                       s.Last_Name || ', ' || s.First_Name,
+                       c.name, d.name,
                        m.mark, m.mark_date
                 FROM Marks m
                 JOIN Student s ON m.student_id = s.Student_ID
                 JOIN Course c ON m.course_id = c.Course_ID AND m.dept_id = c.Department_ID
                 JOIN Department d ON m.dept_id = d.Department_id
-                ORDER BY m.mark_date DESC, s.Last_Name
-            """
-            cursor = self.db_connection.get_cursor()
-            cursor.execute(query)
-            results = cursor.fetchall()
-            column_names = ['Mark ID', 'Student ID', 'Course ID', 'Dept ID', 
-                          'Student Name', 'Course', 'Department', 'Mark', 'Date']
+                ORDER BY m.mark_date DESC
+            """)
+            rows = cursor.fetchall()
             
-            self.marks_table.setRowCount(len(results))
-            self.marks_table.setColumnCount(len(column_names))
-            self.marks_table.setHorizontalHeaderLabels(column_names)
+            headers = ['ID', 'SID', 'CID', 'DID', 'Student', 'Course', 'Dept', 'Mark', 'Date']
+            self.marks_table.setRowCount(len(rows))
+            self.marks_table.setColumnCount(len(headers))
+            self.marks_table.setHorizontalHeaderLabels(headers)
             
-            for row_idx, row in enumerate(results):
-                for col_idx, value in enumerate(row):
-                    item = QTableWidgetItem(str(value) if value is not None else '')
+            for i, row in enumerate(rows):
+                for j, val in enumerate(row):
+                    item = QTableWidgetItem(str(val) if val else '')
                     item.setFlags(item.flags() & ~Qt.ItemIsEditable)
-                    self.marks_table.setItem(row_idx, col_idx, item)
+                    self.marks_table.setItem(i, j, item)
             
             self.marks_table.resizeColumnsToContents()
         except Exception as e:
-            QMessageBox.warning(self, 'Error', f'Failed to load marks:\n{str(e)}')
+            show_error(self, 'Error', f'Failed to load marks:\n{str(e)}')
     
     def add_attendance(self):
         """Add attendance record."""
         try:
-            student_id = self.attendance_student_combo.currentData()
+            sid = self.attendance_student_combo.currentData()
             course_data = self.attendance_course_combo.currentData()
             
-            if student_id is None or course_data is None:
-                QMessageBox.warning(self, 'Validation Error', 'Please select both student and course.')
+            if not sid or not course_data:
+                show_warning(self, 'Validation', 'Select student and course')
                 return
             
-            course_id, dept_id = course_data
-            attendance_date = self.attendance_date.date().toString('yyyy-MM-dd')
+            cid, did = course_data
+            date = self.attendance_date.date().toString('yyyy-MM-dd')
             status = self.attendance_status.currentText()
             notes = self.attendance_notes.text().strip() or None
             
             cursor = self.db_connection.get_cursor()
-            query = """
-                INSERT INTO Attendance (student_id, course_id, dept_id, attendance_date, status, notes)
-                VALUES (%s, %s, %s, %s::date, %s, %s)
-            """
-            cursor.execute(query, (student_id, course_id, dept_id, attendance_date, status, notes))
+            cursor.execute(
+                "INSERT INTO Attendance (student_id, course_id, dept_id, attendance_date, status, notes) VALUES (%s, %s, %s, %s, %s, %s)",
+                (sid, cid, did, date, status, notes)
+            )
             self.db_connection.commit()
             
-            QMessageBox.information(self, 'Success', 'Attendance recorded successfully!')
+            show_info(self, 'Success', 'Attendance recorded!')
             self.clear_attendance_form()
             self.load_attendance_data()
-            
-        except psycopg2.IntegrityError as e:
-            QMessageBox.warning(self, 'Database Error', 
-                              f'Failed to record attendance:\n{str(e)}\n\n'
-                              'This may be due to:\n'
-                              '- Foreign key constraint violation')
         except Exception as e:
-            QMessageBox.warning(self, 'Error', f'Failed to record attendance:\n{str(e)}')
+            show_error(self, 'Error', f'Failed to record:\n{str(e)}')
     
     def clear_attendance_form(self):
         """Clear attendance form."""
@@ -496,36 +543,33 @@ class MarksAttendanceWindow(QMainWindow):
         self.attendance_notes.clear()
     
     def load_attendance_data(self):
-        """Load and display attendance records."""
+        """Load attendance table data."""
         try:
-            query = """
+            cursor = self.db_connection.get_cursor()
+            cursor.execute("""
                 SELECT a.attendance_id, a.student_id, a.course_id, a.dept_id,
-                       s.Last_Name || ', ' || s.First_Name as Student_Name,
-                       c.name as Course_Name, d.name as Department_Name,
+                       s.Last_Name || ', ' || s.First_Name,
+                       c.name, d.name,
                        a.attendance_date, a.status, a.notes
                 FROM Attendance a
                 JOIN Student s ON a.student_id = s.Student_ID
                 JOIN Course c ON a.course_id = c.Course_ID AND a.dept_id = c.Department_ID
                 JOIN Department d ON a.dept_id = d.Department_id
-                ORDER BY a.attendance_date DESC, s.Last_Name
-            """
-            cursor = self.db_connection.get_cursor()
-            cursor.execute(query)
-            results = cursor.fetchall()
-            column_names = ['Attendance ID', 'Student ID', 'Course ID', 'Dept ID',
-                          'Student Name', 'Course', 'Department', 'Date', 'Status', 'Notes']
+                ORDER BY a.attendance_date DESC
+            """)
+            rows = cursor.fetchall()
             
-            self.attendance_table.setRowCount(len(results))
-            self.attendance_table.setColumnCount(len(column_names))
-            self.attendance_table.setHorizontalHeaderLabels(column_names)
+            headers = ['ID', 'SID', 'CID', 'DID', 'Student', 'Course', 'Dept', 'Date', 'Status', 'Notes']
+            self.attendance_table.setRowCount(len(rows))
+            self.attendance_table.setColumnCount(len(headers))
+            self.attendance_table.setHorizontalHeaderLabels(headers)
             
-            for row_idx, row in enumerate(results):
-                for col_idx, value in enumerate(row):
-                    item = QTableWidgetItem(str(value) if value is not None else '')
+            for i, row in enumerate(rows):
+                for j, val in enumerate(row):
+                    item = QTableWidgetItem(str(val) if val else '')
                     item.setFlags(item.flags() & ~Qt.ItemIsEditable)
-                    self.attendance_table.setItem(row_idx, col_idx, item)
+                    self.attendance_table.setItem(i, j, item)
             
             self.attendance_table.resizeColumnsToContents()
         except Exception as e:
-            QMessageBox.warning(self, 'Error', f'Failed to load attendance:\n{str(e)}')
-
+            show_error(self, 'Error', f'Failed to load attendance:\n{str(e)}')
