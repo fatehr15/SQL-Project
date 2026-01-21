@@ -35,7 +35,8 @@ class GenericCRUDForm(QWidget):
             show_error(self, "Connection Error", str(e))
             raise
         
-        self.current_edit_id = None
+        # Store current record's primary key values
+        self.current_pk_values = {}
         self.init_ui()
         
         # Only load data if we have a primary key defined
@@ -215,19 +216,14 @@ class GenericCRUDForm(QWidget):
         
         if field_type == 'combo':
             if value is not None and value != '':
-                try:
-                    int_value = int(value)
-                    index = widget.findData(int_value)
-                    if index >= 0:
-                        widget.setCurrentIndex(index)
-                        return
-                except (ValueError, TypeError):
-                    pass
-                
-                index = widget.findData(str(value))
-                if index >= 0:
-                    widget.setCurrentIndex(index)
-                    return
+                # Try to find by data value
+                for i in range(widget.count()):
+                    item_data = widget.itemData(i)
+                    if item_data is not None:
+                        # Compare as strings to handle type mismatches
+                        if str(item_data) == str(value):
+                            widget.setCurrentIndex(i)
+                            return
             widget.setCurrentIndex(0)
         elif field_type == 'date':
             if value and str(value) != 'None' and str(value) != '':
@@ -242,9 +238,10 @@ class GenericCRUDForm(QWidget):
     def validate_form(self):
         """Validate form inputs."""
         for field_name, field in self.input_fields.items():
-            if field['required'] and not field['pk']:
+            if field['required']:
                 value = self.get_field_value(field_name)
-                if not value or (isinstance(value, int) and value is None):
+                # Check for None, empty string, or empty after strip
+                if value is None or value == '' or (isinstance(value, str) and not value.strip()):
                     show_warning(self, 'Validation', f'{field["config"]["label"]} is required')
                     return False
         return True
@@ -260,10 +257,14 @@ class GenericCRUDForm(QWidget):
                 field['widget'].clear()
             else:
                 field['widget'].clear()
-        self.current_edit_id = None
+        
+        self.current_pk_values = {}
         self.btn_update.setEnabled(False)
         self.btn_delete.setEnabled(False)
         self.btn_create.setEnabled(True)
+        
+        # Clear table selection
+        self.data_table.clearSelection()
     
     def get_primary_key_columns(self):
         """Get primary key column names."""
@@ -280,16 +281,19 @@ class GenericCRUDForm(QWidget):
             placeholders = []
             
             for col in self.columns_config:
-                if not col.get('pk', False) or self.get_field_value(col['name']):
-                    columns.append(col['name'])
-                    value = self.get_field_value(col['name'])
-                    if value == '' or (isinstance(value, str) and value.strip() == ''):
-                        value = None
-                    if value is None and col.get('type') == 'combo' and col.get('required', False):
-                        show_warning(self, 'Validation', f'{col["label"]} is required')
-                        return
-                    values.append(value)
-                    placeholders.append('%s')
+                value = self.get_field_value(col['name'])
+                
+                # Skip auto-increment PKs that are empty
+                if col.get('pk', False) and (value is None or value == ''):
+                    continue
+                
+                # Skip empty optional fields
+                if not col.get('required', False) and (value is None or value == ''):
+                    continue
+                
+                columns.append(col['name'])
+                values.append(value)
+                placeholders.append('%s')
             
             query = f"INSERT INTO {self.table_name} ({', '.join(columns)}) VALUES ({', '.join(placeholders)})"
             
@@ -301,12 +305,16 @@ class GenericCRUDForm(QWidget):
             self.clear_form()
             self.load_data()
         except Exception as e:
+            self.db_connection.rollback()
             show_error(self, 'Error', f'Failed to create record:\n{str(e)}')
     
     def update_record(self):
         """Update selected record."""
-        if not self.current_edit_id:
-            show_warning(self, 'Error', 'No record selected')
+        # Debug: Print current PK values
+        print(f"DEBUG - Update called. PK values: {self.current_pk_values}")
+        
+        if not self.current_pk_values:
+            show_warning(self, 'Error', 'No record selected. Please select a record from the table first.')
             return
         
         if not self.validate_form():
@@ -314,63 +322,89 @@ class GenericCRUDForm(QWidget):
         
         try:
             pk_columns = self.get_primary_key_columns()
+            
+            # Verify we have all PK values
+            missing_pks = [pk for pk in pk_columns if pk not in self.current_pk_values]
+            if missing_pks:
+                show_warning(self, 'Error', f'Missing primary key values: {", ".join(missing_pks)}')
+                return
+            
             set_clauses = []
             values = []
             
+            # Build SET clause for non-PK columns
             for col in self.columns_config:
                 if not col.get('pk', False):
                     set_clauses.append(f"{col['name']} = %s")
                     value = self.get_field_value(col['name'])
-                    if value == '' or (isinstance(value, str) and value.strip() == ''):
+                    if value == '' and not col.get('required', False):
                         value = None
                     values.append(value)
             
+            # Build WHERE clause using stored PK values
             where_clauses = []
             for pk_col in pk_columns:
                 where_clauses.append(f"{pk_col} = %s")
-                values.append(self.get_field_value(pk_col))
+                values.append(self.current_pk_values[pk_col])
             
             query = f"UPDATE {self.table_name} SET {', '.join(set_clauses)} WHERE {' AND '.join(where_clauses)}"
+            print(f"DEBUG - Update query: {query}")
+            print(f"DEBUG - Update values: {values}")
             
             cursor = self.db_connection.get_cursor()
             cursor.execute(query, values)
             self.db_connection.commit()
             
-            show_info(self, 'Success', 'Record updated!')
+            show_info(self, 'Success', 'Record updated successfully!')
             self.clear_form()
             self.load_data()
         except Exception as e:
+            self.db_connection.rollback()
             show_error(self, 'Error', f'Failed to update:\n{str(e)}')
     
     def delete_record(self):
         """Delete selected record."""
-        if not self.current_edit_id:
-            show_warning(self, 'Error', 'No record selected')
+        # Debug: Print current PK values
+        print(f"DEBUG - Delete called. PK values: {self.current_pk_values}")
+        
+        if not self.current_pk_values:
+            show_warning(self, 'Error', 'No record selected. Please select a record from the table first.')
             return
         
-        if not show_question(self, 'Confirm', 'Delete this record?'):
+        if not show_question(self, 'Confirm', 'Are you sure you want to delete this record?'):
             return
         
         try:
             pk_columns = self.get_primary_key_columns()
+            
+            # Verify we have all PK values
+            missing_pks = [pk for pk in pk_columns if pk not in self.current_pk_values]
+            if missing_pks:
+                show_warning(self, 'Error', f'Missing primary key values: {", ".join(missing_pks)}')
+                return
+            
             where_clauses = []
             values = []
             
+            # Build WHERE clause using stored PK values
             for pk_col in pk_columns:
                 where_clauses.append(f"{pk_col} = %s")
-                values.append(self.get_field_value(pk_col))
+                values.append(self.current_pk_values[pk_col])
             
             query = f"DELETE FROM {self.table_name} WHERE {' AND '.join(where_clauses)}"
+            print(f"DEBUG - Delete query: {query}")
+            print(f"DEBUG - Delete values: {values}")
             
             cursor = self.db_connection.get_cursor()
             cursor.execute(query, values)
             self.db_connection.commit()
             
-            show_info(self, 'Success', 'Record deleted!')
+            show_info(self, 'Success', 'Record deleted successfully!')
             self.clear_form()
             self.load_data()
         except Exception as e:
-            show_error(self, 'Error', f'Failed to delete:\n{str(e)}\n\nRecord may be referenced by other tables.')
+            self.db_connection.rollback()
+            show_error(self, 'Error', f'Failed to delete:\n{str(e)}\n\nThis record may be referenced by other tables.')
     
     def load_data(self):
         """Load and display data in table."""
@@ -380,15 +414,18 @@ class GenericCRUDForm(QWidget):
                 show_warning(self, 'Error', 'No primary key defined')
                 return
             
-            query = f"SELECT * FROM {self.table_name} ORDER BY {pk_columns[0]}"
+            query = f"SELECT * FROM {self.table_name} ORDER BY {', '.join(pk_columns)}"
             cursor = self.db_connection.get_cursor()
             cursor.execute(query)
             results = cursor.fetchall()
             
+            # Get column names from cursor description
             if cursor.description:
                 column_names = [desc[0] for desc in cursor.description]
+                print(f"DEBUG - Table columns from DB: {column_names}")
             else:
                 column_names = [col['name'] for col in self.columns_config]
+                print(f"DEBUG - Table columns from config: {column_names}")
             
             self.data_table.setRowCount(len(results))
             self.data_table.setColumnCount(len(column_names))
@@ -401,6 +438,8 @@ class GenericCRUDForm(QWidget):
                     self.data_table.setItem(row_idx, col_idx, item)
             
             self.data_table.resizeColumnsToContents()
+            
+            print(f"DEBUG - Loaded {len(results)} rows")
         except Exception as e:
             show_error(self, 'Error', f'Failed to load data:\n{str(e)}')
     
@@ -408,36 +447,101 @@ class GenericCRUDForm(QWidget):
         """Handle row selection in data table."""
         selected_rows = self.data_table.selectedItems()
         if not selected_rows:
+            # Clear form if no selection
+            self.current_pk_values = {}
+            self.btn_update.setEnabled(False)
+            self.btn_delete.setEnabled(False)
+            self.btn_create.setEnabled(True)
             return
         
         row = selected_rows[0].row()
         
-        # Load data into form
+        # Store primary key values
+        self.current_pk_values = {}
+        pk_columns = self.get_primary_key_columns()
+        
+        print(f"DEBUG - PK columns needed: {pk_columns}")
+        
+        # Get column index mapping (case-insensitive)
+        column_indices = {}
+        column_name_map = {}  # Maps lowercase to actual column name
+        for i in range(self.data_table.columnCount()):
+            header_item = self.data_table.horizontalHeaderItem(i)
+            if header_item:
+                actual_name = header_item.text()
+                column_indices[actual_name] = i
+                column_name_map[actual_name.lower()] = actual_name
+        
+        print(f"DEBUG - Available columns in table: {list(column_indices.keys())}")
+        
+        # FIRST: Extract and store ALL primary key values from the table
+        for pk_col in pk_columns:
+            # Try exact match first
+            matched_col = None
+            if pk_col in column_indices:
+                matched_col = pk_col
+            else:
+                # Try case-insensitive match
+                pk_col_lower = pk_col.lower()
+                if pk_col_lower in column_name_map:
+                    matched_col = column_name_map[pk_col_lower]
+                    print(f"DEBUG - Matched '{pk_col}' to '{matched_col}' (case-insensitive)")
+            
+            if matched_col:
+                col_idx = column_indices[matched_col]
+                item = self.data_table.item(row, col_idx)
+                value = item.text() if item else None
+                if value and value.strip():
+                    self.current_pk_values[pk_col] = value.strip()
+                    print(f"DEBUG - Stored PK {pk_col} = {value.strip()}")
+                else:
+                    print(f"DEBUG - WARNING: Empty value for PK {pk_col}")
+            else:
+                print(f"DEBUG - ERROR: Could not find column '{pk_col}' in table")
+        
+        # SECOND: Load ALL data into form fields
         for col in self.columns_config:
             col_name = col['name']
-            col_idx = None
-            for i in range(self.data_table.columnCount()):
-                if self.data_table.horizontalHeaderItem(i).text() == col_name:
-                    col_idx = i
-                    break
-            if col_idx is not None:
+            
+            # Try exact match first
+            matched_col = None
+            if col_name in column_indices:
+                matched_col = col_name
+            else:
+                # Try case-insensitive match
+                col_name_lower = col_name.lower()
+                if col_name_lower in column_name_map:
+                    matched_col = column_name_map[col_name_lower]
+            
+            if matched_col:
+                col_idx = column_indices[matched_col]
                 item = self.data_table.item(row, col_idx)
                 value = item.text() if item else None
                 self.set_field_value(col_name, value)
         
-        pk_columns = self.get_primary_key_columns()
-        if len(pk_columns) == 1:
-            pk_idx = 0
-            for i in range(self.data_table.columnCount()):
-                if self.data_table.horizontalHeaderItem(i).text() == pk_columns[0]:
-                    pk_idx = i
-                    break
-            item = self.data_table.item(row, pk_idx)
-            self.current_edit_id = item.text() if item else None
+        print(f"DEBUG - Final PK values stored: {self.current_pk_values}")
+        print(f"DEBUG - Expected {len(pk_columns)} PKs, got {len(self.current_pk_values)}")
         
-        self.btn_update.setEnabled(True)
-        self.btn_delete.setEnabled(True)
-        self.btn_create.setEnabled(False)
+        # Verify we have all PK values before enabling buttons
+        if len(self.current_pk_values) == len(pk_columns) and self.current_pk_values:
+            self.btn_update.setEnabled(True)
+            self.btn_delete.setEnabled(True)
+            self.btn_create.setEnabled(False)
+            print("DEBUG - Buttons enabled successfully")
+        else:
+            # If we don't have all PK values, something went wrong
+            missing = [pk for pk in pk_columns if pk not in self.current_pk_values]
+            show_warning(self, 'Error', 
+                        f'Could not identify primary key values for this record.\n\n'
+                        f'Expected PK columns: {pk_columns}\n'
+                        f'Missing: {missing}\n'
+                        f'Found: {list(self.current_pk_values.keys())}\n\n'
+                        f'Available table columns: {list(column_indices.keys())}\n\n'
+                        f'This usually means the column names in your configuration '
+                        f'do not match the actual database column names.')
+            self.current_pk_values = {}
+            self.btn_update.setEnabled(False)
+            self.btn_delete.setEnabled(False)
 
 
 # Factory functions - Accept parent parameter

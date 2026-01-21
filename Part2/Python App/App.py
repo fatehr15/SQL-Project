@@ -221,45 +221,55 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.conn_manager = connection_manager
         self.active_window = None
-        self.dashboard_widget = None
         
         self.init_ui()
-        self.load_dashboard()
     
     def init_ui(self):
         """Initialize the user interface."""
         self.setWindowTitle('University Database Management System')
-        self.setGeometry(100, 100, 1200, 800)
+        self.setGeometry(100, 100, 1280, 840)
         
-        # Set modern color scheme
+        # Modern, refined color scheme with better contrast
         self.setStyleSheet("""
             QMainWindow {
-                background-color: #f5f6fa;
+                background-color: #F8F9FA;
             }
             QMenuBar {
-                background-color: #2c3e50;
-                color: white;
-                padding: 5px;
+                background-color: #1A1D23;
+                color: #FFFFFF;
+                padding: 8px;
+                font-size: 14px;
+                border-bottom: 1px solid #2D3139;
             }
             QMenuBar::item {
                 background-color: transparent;
-                padding: 5px 15px;
+                padding: 8px 16px;
+                border-radius: 6px;
             }
             QMenuBar::item:selected {
-                background-color: #34495e;
+                background-color: #2D3139;
             }
             QMenu {
-                background-color: white;
-                border: 1px solid #dcdde1;
+                background-color: #FFFFFF;
+                border: 1px solid #E1E4E8;
+                border-radius: 8px;
+                padding: 4px;
+            }
+            QMenu::item {
+                padding: 8px 24px 8px 16px;
+                border-radius: 4px;
+                color: #24292E;
             }
             QMenu::item:selected {
-                background-color: #3498db;
-                color: white;
+                background-color: #2563EB;
+                color: #FFFFFF;
             }
             QStatusBar {
-                background-color: #ecf0f1;
-                color: #2c3e50;
-                font-size: 11px;
+                background-color: #FFFFFF;
+                color: #57606A;
+                font-size: 13px;
+                border-top: 1px solid #E1E4E8;
+                padding: 4px 8px;
             }
         """)
         
@@ -267,115 +277,165 @@ class MainWindow(QMainWindow):
         menubar = self.menuBar()
         
         # Settings menu
-        settings_menu = menubar.addMenu('⚙ Settings')
+        settings_menu = menubar.addMenu('Settings')
         connection_action = settings_menu.addAction('Database Connection...')
         connection_action.triggered.connect(self.show_connection_dialog)
         
         # Help menu
-        help_menu = menubar.addMenu('❓ Help')
+        help_menu = menubar.addMenu('Help')
         about_action = help_menu.addAction('About')
         about_action.triggered.connect(self.show_about)
         
         # Central widget with scrolling
-        from PyQt5.QtWidgets import QScrollArea
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
         scroll_area.setFrameShape(QScrollArea.NoFrame)
+        scroll_area.setStyleSheet("background-color: #F8F9FA;")
         self.setCentralWidget(scroll_area)
         
         central_widget = QWidget()
         scroll_area.setWidget(central_widget)
         
         main_layout = QVBoxLayout()
-        main_layout.setContentsMargins(40, 30, 40, 30)
-        main_layout.setSpacing(20)
+        main_layout.setContentsMargins(48, 32, 48, 32)
+        main_layout.setSpacing(24)
         central_widget.setLayout(main_layout)
         
-        # Header section with icon
+        # Header section - refined and modern
         header_widget = QWidget()
         header_layout = QVBoxLayout()
-        header_layout.setSpacing(10)
+        header_layout.setSpacing(8)
         header_widget.setLayout(header_layout)
         
-        # Title with icon
-        title = QLabel('🎓 University Database Management System')
-        title_font = QFont('Segoe UI', 24, QFont.Bold)
+        # Title with clean design
+        title = QLabel('University Database Management')
+        title_font = QFont('Segoe UI', 28, QFont.Bold)
         title.setFont(title_font)
         title.setAlignment(Qt.AlignCenter)
         title.setStyleSheet("""
-            color: #2c3e50;
-            padding: 20px;
-            background-color: white;
-            border-radius: 10px;
-            border: 2px solid #3498db;
+            color: #1A1D23;
+            padding: 24px;
+            background-color: #FFFFFF;
+            border-radius: 12px;
+            border: 1px solid #E1E4E8;
         """)
         header_layout.addWidget(title)
         
-        subtitle = QLabel('Select a module to get started')
+        subtitle = QLabel('Choose a module to begin managing your institution')
         subtitle.setAlignment(Qt.AlignCenter)
-        subtitle_font = QFont('Segoe UI', 12)
+        subtitle_font = QFont('Segoe UI', 14)
         subtitle.setFont(subtitle_font)
-        subtitle.setStyleSheet("padding: 5px; color: #7f8c8d;")
+        subtitle.setStyleSheet("padding: 8px; color: #57606A;")
         header_layout.addWidget(subtitle)
         
         main_layout.addWidget(header_widget)
         
-        # Info panel (placeholder for dashboard)
-        self.dashboard_container = QWidget()
-        dashboard_layout = QVBoxLayout()
-        dashboard_layout.setContentsMargins(0, 0, 0, 0)
-        self.dashboard_container.setLayout(dashboard_layout)
-        main_layout.addWidget(self.dashboard_container)
-        
-        # Modules section
-        modules_label = QLabel('📚 Available Modules')
-        modules_label.setFont(QFont('Segoe UI', 14, QFont.Bold))
-        modules_label.setStyleSheet("color: #2c3e50; padding: 10px 0;")
+        # Modules section header
+        modules_label = QLabel('Available Modules')
+        modules_label.setFont(QFont('Segoe UI', 18, QFont.Bold))
+        modules_label.setStyleSheet("color: #1A1D23; padding: 16px 0 8px 0;")
         main_layout.addWidget(modules_label)
         
-        # Grid-like layout for buttons
+        # Grid layout for module buttons - grouped by function
         buttons_widget = QWidget()
         buttons_layout = QVBoxLayout()
-        buttons_layout.setSpacing(15)
+        buttons_layout.setSpacing(16)
         buttons_widget.setLayout(buttons_layout)
         
-        # Define button rows with icons
-        row_data = [
-            [
-                ('📝 CRUD Operations', 'Manage Create, Read, Update, Delete operations', self.open_crud_operations, '#3498db'),
-                ('📅 Assignment/Reservations', 'Manage course assignments and room reservations', self.open_assignment_reservations, '#9b59b6')
-            ],
-            [
-                ('✍ Marks & Attendance', 'Manage student marks and attendance records', self.open_marks_attendance, '#e67e22'),
-                ('📊 Grading/Results', 'Process grades and generate results', self.open_grading_results, '#27ae60')
-            ],
-            [
-                ('🔍 Reporting (SQL)', 'Execute complex SQL queries and generate reports', self.open_reporting, '#16a085'),
-                ('🔐 Audit Logs', 'View audit logs and trigger information', self.open_audit, '#c0392b')
-            ]
-        ]
+        # Group 1: Core Operations
+        core_label = QLabel('Core Operations')
+        core_label.setFont(QFont('Segoe UI', 13, QFont.Medium))
+        core_label.setStyleSheet("color: #57606A; padding: 8px 0 4px 0;")
+        buttons_layout.addWidget(core_label)
         
-        for row in row_data:
-            h_layout = QHBoxLayout()
-            h_layout.setSpacing(15)
-            for text, tooltip, callback, color in row:
-                btn = self.create_menu_button(text, tooltip, color)
-                btn.clicked.connect(callback)
-                h_layout.addWidget(btn)
-            buttons_layout.addLayout(h_layout)
+        core_row = QHBoxLayout()
+        core_row.setSpacing(16)
+        
+        crud_btn = self.create_menu_button(
+            'CRUD Operations',
+            'Create, read, update, and delete database records',
+            '#2563EB'
+        )
+        crud_btn.clicked.connect(self.open_crud_operations)
+        core_row.addWidget(crud_btn)
+        
+        assign_btn = self.create_menu_button(
+            'Assignments & Reservations',
+            'Manage course assignments and room bookings',
+            '#7C3AED'
+        )
+        assign_btn.clicked.connect(self.open_assignment_reservations)
+        core_row.addWidget(assign_btn)
+        
+        buttons_layout.addLayout(core_row)
+        
+        # Group 2: Academic Management
+        academic_label = QLabel('Academic Management')
+        academic_label.setFont(QFont('Segoe UI', 13, QFont.Medium))
+        academic_label.setStyleSheet("color: #57606A; padding: 16px 0 4px 0;")
+        buttons_layout.addWidget(academic_label)
+        
+        academic_row = QHBoxLayout()
+        academic_row.setSpacing(16)
+        
+        marks_btn = self.create_menu_button(
+            'Marks & Attendance',
+            'Record and track student marks and attendance',
+            '#DC2626'
+        )
+        marks_btn.clicked.connect(self.open_marks_attendance)
+        academic_row.addWidget(marks_btn)
+        
+        grading_btn = self.create_menu_button(
+            'Grading & Results',
+            'Process grades and generate student results',
+            '#059669'
+        )
+        grading_btn.clicked.connect(self.open_grading_results)
+        academic_row.addWidget(grading_btn)
+        
+        buttons_layout.addLayout(academic_row)
+        
+        # Group 3: Analytics & Audit
+        analytics_label = QLabel('Analytics & Audit')
+        analytics_label.setFont(QFont('Segoe UI', 13, QFont.Medium))
+        analytics_label.setStyleSheet("color: #57606A; padding: 16px 0 4px 0;")
+        buttons_layout.addWidget(analytics_label)
+        
+        analytics_row = QHBoxLayout()
+        analytics_row.setSpacing(16)
+        
+        reporting_btn = self.create_menu_button(
+            'SQL Reporting',
+            'Execute queries and generate custom reports',
+            '#0891B2'
+        )
+        reporting_btn.clicked.connect(self.open_reporting)
+        analytics_row.addWidget(reporting_btn)
+        
+        audit_btn = self.create_menu_button(
+            'Audit Logs',
+            'Review system audit trails and trigger logs',
+            '#64748B'
+        )
+        audit_btn.clicked.connect(self.open_audit)
+        analytics_row.addWidget(audit_btn)
+        
+        buttons_layout.addLayout(analytics_row)
         
         main_layout.addWidget(buttons_widget)
         main_layout.addStretch()
         
-        # Footer
-        footer = QLabel('💡 Tip: Use Settings → Database Connection to switch between PostgreSQL and Demo mode')
+        # Footer - refined info panel
+        footer = QLabel('Tip: Switch between PostgreSQL and Demo mode in Settings → Database Connection')
         footer.setAlignment(Qt.AlignCenter)
         footer.setStyleSheet("""
-            color: #95a5a6;
-            font-size: 10px;
-            padding: 10px;
-            background-color: #ecf0f1;
-            border-radius: 5px;
+            color: #57606A;
+            font-size: 14px;
+            padding: 16px;
+            background-color: #FFFFFF;
+            border-radius: 8px;
+            border: 1px solid #E1E4E8;
         """)
         main_layout.addWidget(footer)
         
@@ -400,55 +460,62 @@ class MainWindow(QMainWindow):
             "<li>Complete audit trail</li>"
             "</ul>"
             "<p><b>Database Support:</b> PostgreSQL and SQLite</p>"
+            "<p>Developed by Hassani Fateh and Raid Kahlrass</p>"
         )
     
     def _update_status_bar(self):
         """Update status bar with connection info."""
         if self.conn_manager.in_memory:
-            status = 'Using in-memory demo database (SQLite)'
+            status = '● In-memory demo database (SQLite) • Data will not persist'
         elif self.conn_manager.use_demo:
-            status = 'Demo database connected (SQLite)'
+            status = '● Demo database connected (SQLite)'
         else:
-            status = 'Database connected (PostgreSQL)'
+            status = '● Connected to PostgreSQL'
         
         self.statusBar().showMessage(status)
     
-    def create_menu_button(self, text, tooltip, color='#3498db'):
-        """Create a styled menu button with modern design."""
+    def create_menu_button(self, text, tooltip, color='#2563EB'):
+        """Create a modern, accessible menu button with proper contrast."""
         button = QPushButton(text)
         button.setToolTip(tooltip)
-        button.setMinimumHeight(120)
-        button.setFont(QFont('Segoe UI', 11, QFont.Bold))
+        button.setMinimumHeight(96)
+        button.setFont(QFont('Segoe UI', 13, QFont.DemiBold))
         button.setCursor(Qt.PointingHandCursor)
+        
+        # Hover color calculation
+        hover_color = self._adjust_color(color, -15)
+        pressed_color = self._adjust_color(color, -25)
+        
         button.setStyleSheet(f"""
             QPushButton {{
-                background-color: {color};
-                color: white;
+                background: {color};
+                color: #FFFFFF;
                 border: none;
-                border-radius: 12px;
-                padding: 20px;
+                border-radius: 10px;
+                padding: 20px 24px;
                 text-align: left;
-                font-weight: bold;
+                font-weight: 600;
             }}
             QPushButton:hover {{
-                background-color: {self._darken_color(color)};
-                transform: translateY(-2px);
-                box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+                background: {hover_color};
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
             }}
             QPushButton:pressed {{
-                background-color: {self._darken_color(color, 0.3)};
-                transform: translateY(0px);
+                background: {pressed_color};
+                transform: translateY(1px);
             }}
         """)
         return button
     
-    def _darken_color(self, hex_color, factor=0.15):
-        """Darken a hex color by a given factor."""
+    def _adjust_color(self, hex_color, amount):
+        """Adjust hex color brightness by amount."""
         hex_color = hex_color.lstrip('#')
         r, g, b = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
-        r = int(r * (1 - factor))
-        g = int(g * (1 - factor))
-        b = int(b * (1 - factor))
+        
+        r = max(0, min(255, r + amount))
+        g = max(0, min(255, g + amount))
+        b = max(0, min(255, b + amount))
+        
         return f'#{r:02x}{g:02x}{b:02x}'
     
     def show_connection_dialog(self):
@@ -465,7 +532,6 @@ class MainWindow(QMainWindow):
             
             if success:
                 self._update_status_bar()
-                self.load_dashboard()
             else:
                 # Show error and options
                 self._show_connection_error(message)
@@ -497,7 +563,6 @@ class MainWindow(QMainWindow):
                     "You can change connection settings later from the menu."
                 )
                 self._update_status_bar()
-                self.load_dashboard()
             else:
                 QMessageBox.critical(self, "Demo Connection Failed", message)
     
@@ -517,24 +582,21 @@ class MainWindow(QMainWindow):
                 self.dashboard_widget.setParent(None)
                 self.dashboard_widget = None
             
-            # Create and add dashboard
-            from dashboard_widget import DashboardWidget
-            self.dashboard_widget = DashboardWidget(connection, self)
-            layout.addWidget(self.dashboard_widget)
             
         except Exception as e:
             print(f"Warning: Could not load dashboard: {e}")
             import traceback
             traceback.print_exc()
             # Show a placeholder message instead
-            placeholder = QLabel("📊 Dashboard currently unavailable")
+            placeholder = QLabel("Dashboard currently unavailable")
             placeholder.setAlignment(Qt.AlignCenter)
             placeholder.setStyleSheet("""
-                padding: 20px;
-                background-color: #fff3cd;
-                color: #856404;
+                padding: 24px;
+                background-color: #FEF3C7;
+                color: #92400E;
                 border-radius: 8px;
-                border: 1px solid #ffeaa7;
+                border: 1px solid #FCD34D;
+                font-size: 14px;
             """)
             self.dashboard_container.layout().addWidget(placeholder)
     

@@ -5,101 +5,174 @@ Allows users to configure database connection settings.
 
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
                              QLineEdit, QPushButton, QLabel, QMessageBox,
-                             QGroupBox, QCheckBox, QProgressBar, QFrame, QWidget)
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QFont, QIntValidator
+                             QGroupBox, QCheckBox, QProgressBar, QFrame, QWidget,
+                             QRadioButton, QButtonGroup, QToolButton)
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal
+from PyQt5.QtGui import QFont, QIntValidator, QIcon
 import json
 from pathlib import Path
 from connection_validator import ConnectionValidatorThread
 
 
+class InlineMessageWidget(QWidget):
+    """Inline message widget for field validation feedback."""
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setVisible(False)
+        
+        layout = QHBoxLayout()
+        layout.setContentsMargins(0, 4, 0, 0)
+        layout.setSpacing(6)
+        self.setLayout(layout)
+        
+        self.icon_label = QLabel()
+        self.icon_label.setFixedSize(16, 16)
+        layout.addWidget(self.icon_label)
+        
+        self.text_label = QLabel()
+        self.text_label.setWordWrap(True)
+        self.text_label.setStyleSheet("font-size: 11px;")
+        layout.addWidget(self.text_label, 1)
+    
+    def show_message(self, message, msg_type="error"):
+        """Show inline message with icon and styling."""
+        colors = {
+            'error': '#DC2626',
+            'success': '#059669',
+            'warning': '#D97706',
+            'info': '#2563EB'
+        }
+        
+        icons = {
+            'error': '✕',
+            'success': '✓',
+            'warning': '!',
+            'info': 'i'
+        }
+        
+        self.icon_label.setText(icons.get(msg_type, 'i'))
+        self.icon_label.setStyleSheet(f"color: {colors.get(msg_type, '#6E7781')}; font-weight: bold;")
+        self.text_label.setText(message)
+        self.text_label.setStyleSheet(f"color: {colors.get(msg_type, '#6E7781')}; font-size: 11px;")
+        self.setVisible(True)
+    
+    def hide_message(self):
+        """Hide the inline message."""
+        self.setVisible(False)
+
+
 class ConnectionDialog(QDialog):
-    """Dialog for configuring database connection settings."""
+    """Professional dialog for configuring database connection settings."""
     
     CONFIG_FILE = Path(__file__).parent / "db_config.json"
     
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle('Database Connection Settings')
-        self.setFixedSize(600, 650)
+        self.setMinimumWidth(560)
+        self.setMaximumWidth(680)
         self.setModal(True)
         
         self.connection_settings = {}
         self.load_saved_settings()
         self.validator_thread = None
         self.last_connection_test_successful = False
+        self.password_visible = False
         
-        # Apply modern styling
+        # Modern, professional styling
         self.setStyleSheet("""
             QDialog {
-                background-color: #f5f6fa;
+                background-color: #F8F9FA;
             }
             QGroupBox {
-                font-weight: bold;
-                border: 2px solid #dcdde1;
+                font-weight: 600;
+                font-size: 13px;
+                border: 1px solid #E1E4E8;
                 border-radius: 8px;
-                margin-top: 10px;
-                padding-top: 15px;
-                background-color: white;
+                margin-top: 12px;
+                padding-top: 16px;
+                background-color: #FFFFFF;
             }
             QGroupBox::title {
                 subcontrol-origin: margin;
-                left: 15px;
-                padding: 0 5px;
-                color: #2c3e50;
+                left: 16px;
+                padding: 0 8px;
+                color: #1A1D23;
+            }
+            QLabel {
+                color: #24292E;
             }
             QLineEdit {
-                padding: 8px;
-                border: 2px solid #dcdde1;
-                border-radius: 5px;
-                background-color: white;
-                font-size: 11px;
+                padding: 10px 12px;
+                border: 1px solid #D0D7DE;
+                border-radius: 6px;
+                background-color: #FFFFFF;
+                font-size: 13px;
+                color: #24292E;
             }
             QLineEdit:focus {
-                border: 2px solid #3498db;
+                border: 2px solid #2563EB;
+                padding: 9px 11px;
             }
-            QCheckBox {
+            QLineEdit:disabled {
+                background-color: #F6F8FA;
+                color: #57606A;
+            }
+            QRadioButton {
                 spacing: 8px;
-                font-weight: normal;
+                font-size: 13px;
+                color: #24292E;
+                padding: 8px;
             }
-            QCheckBox::indicator {
+            QRadioButton::indicator {
                 width: 18px;
                 height: 18px;
-                border-radius: 3px;
-                border: 2px solid #dcdde1;
+                border-radius: 9px;
+                border: 2px solid #D0D7DE;
+                background-color: #FFFFFF;
             }
-            QCheckBox::indicator:checked {
-                background-color: #3498db;
-                border: 2px solid #3498db;
-                image: url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTEzLjMzMzMgNEw2IDExLjMzMzNMMi42NjY2NyA4IiBzdHJva2U9IndoaXRlIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIvPgo8L3N2Zz4K);
+            QRadioButton::indicator:checked {
+                background-color: #2563EB;
+                border: 2px solid #2563EB;
+            }
+            QRadioButton::indicator:checked::after {
+                content: '';
+                width: 8px;
+                height: 8px;
+                border-radius: 4px;
+                background-color: #FFFFFF;
+                position: absolute;
+                left: 5px;
+                top: 5px;
             }
             QPushButton {
                 padding: 10px 20px;
                 border: none;
                 border-radius: 6px;
-                font-weight: bold;
-                font-size: 11px;
+                font-weight: 600;
+                font-size: 13px;
+                min-height: 36px;
             }
             QPushButton:hover {
-                opacity: 0.9;
+                transform: translateY(-1px);
             }
             QPushButton:pressed {
-                padding-top: 12px;
-                padding-bottom: 8px;
+                transform: translateY(0px);
             }
             QPushButton:disabled {
-                background-color: #95a5a6;
-                color: #ecf0f1;
+                background-color: #E1E4E8;
+                color: #89929B;
             }
             QProgressBar {
-                border: 2px solid #dcdde1;
-                border-radius: 5px;
+                border: 1px solid #E1E4E8;
+                border-radius: 4px;
                 text-align: center;
-                background-color: white;
-                height: 20px;
+                background-color: #F6F8FA;
+                height: 6px;
             }
             QProgressBar::chunk {
-                background-color: #3498db;
+                background-color: #2563EB;
                 border-radius: 3px;
             }
         """)
@@ -107,74 +180,161 @@ class ConnectionDialog(QDialog):
         self.init_ui()
     
     def init_ui(self):
-        """Initialize the user interface."""
+        """Initialize the professional user interface."""
         layout = QVBoxLayout()
-        layout.setSpacing(15)
-        layout.setContentsMargins(25, 25, 25, 25)
+        layout.setSpacing(20)
+        layout.setContentsMargins(32, 32, 32, 32)
         self.setLayout(layout)
         
-        # Header with icon
-        header_layout = QHBoxLayout()
-        header_layout.setSpacing(15)
-        
-        # Icon (emoji as placeholder)
-        icon_label = QLabel('🔌')
-        icon_label.setFont(QFont('Segoe UI', 36))
-        icon_label.setFixedSize(60, 60)
-        icon_label.setAlignment(Qt.AlignCenter)
-        header_layout.addWidget(icon_label)
-        
-        # Title and subtitle
-        title_container = QVBoxLayout()
-        title_container.setSpacing(5)
+        # Header
+        header_layout = QVBoxLayout()
+        header_layout.setSpacing(6)
         
         title = QLabel('Database Connection')
-        title_font = QFont('Segoe UI', 16, QFont.Bold)
-        title.setFont(title_font)
-        title.setStyleSheet("color: #2c3e50;")
-        title_container.addWidget(title)
+        title.setFont(QFont('Segoe UI', 20, QFont.Bold))
+        title.setStyleSheet("color: #1A1D23;")
+        header_layout.addWidget(title)
         
-        subtitle = QLabel('Configure your database connection settings')
-        subtitle.setStyleSheet("color: #7f8c8d; font-size: 11px;")
-        title_container.addWidget(subtitle)
-        
-        header_layout.addLayout(title_container)
-        header_layout.addStretch()
+        subtitle = QLabel('Choose your connection type and configure settings')
+        subtitle.setFont(QFont('Segoe UI', 13))
+        subtitle.setStyleSheet("color: #57606A;")
+        header_layout.addWidget(subtitle)
         
         layout.addLayout(header_layout)
         
-        # Separator
-        separator = QFrame()
-        separator.setFrameShape(QFrame.HLine)
-        separator.setStyleSheet("background-color: #dcdde1; max-height: 2px;")
-        layout.addWidget(separator)
+        # Connection Type Selection (Radio buttons)
+        type_group = QGroupBox('Connection Type')
+        type_layout = QVBoxLayout()
+        type_layout.setSpacing(8)
+        type_layout.setContentsMargins(16, 20, 16, 16)
+        type_group.setLayout(type_layout)
         
-        # PostgreSQL Connection Group
-        pg_group = QGroupBox('🐘 PostgreSQL Connection')
+        self.connection_type_group = QButtonGroup()
+        
+        # PostgreSQL option
+        self.radio_postgresql = QRadioButton('PostgreSQL Database')
+        self.radio_postgresql.setToolTip('Connect to a PostgreSQL server')
+        postgres_desc = QLabel('Production-ready database with full features')
+        postgres_desc.setStyleSheet("color: #57606A; font-size: 12px; margin-left: 26px;")
+        type_layout.addWidget(self.radio_postgresql)
+        type_layout.addWidget(postgres_desc)
+        
+        type_layout.addSpacing(8)
+        
+        # Demo/SQLite option
+        self.radio_demo = QRadioButton('Demo Mode (SQLite)')
+        self.radio_demo.setToolTip('Use local SQLite database with sample data')
+        demo_desc = QLabel('Offline mode with sample data • Perfect for testing')
+        demo_desc.setStyleSheet("color: #57606A; font-size: 12px; margin-left: 26px;")
+        type_layout.addWidget(self.radio_demo)
+        type_layout.addWidget(demo_desc)
+        
+        self.connection_type_group.addButton(self.radio_postgresql, 0)
+        self.connection_type_group.addButton(self.radio_demo, 1)
+        
+        # Set initial selection based on saved settings
+        if self.connection_settings.get('use_demo', False):
+            self.radio_demo.setChecked(True)
+        else:
+            self.radio_postgresql.setChecked(True)
+        
+        self.connection_type_group.buttonClicked.connect(self.on_connection_type_changed)
+        
+        layout.addWidget(type_group)
+        
+        # PostgreSQL Connection Settings
+        self.pg_group = QGroupBox('PostgreSQL Settings')
         pg_layout = QFormLayout()
         pg_layout.setSpacing(12)
-        pg_layout.setContentsMargins(15, 20, 15, 15)
-        pg_group.setLayout(pg_layout)
+        pg_layout.setContentsMargins(16, 20, 16, 16)
+        pg_layout.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
+        self.pg_group.setLayout(pg_layout)
+        
+        # Host field with inline validation
+        host_container = QWidget()
+        host_container_layout = QVBoxLayout()
+        host_container_layout.setContentsMargins(0, 0, 0, 0)
+        host_container_layout.setSpacing(0)
+        host_container.setLayout(host_container_layout)
         
         self.host_input = QLineEdit()
-        self.host_input.setPlaceholderText('localhost')
+        self.host_input.setPlaceholderText('localhost or IP address')
         self.host_input.setText(self.connection_settings.get('host', 'localhost'))
-        pg_layout.addRow('Host:', self.host_input)
+        self.host_input.textChanged.connect(lambda: self.host_message.hide_message())
+        host_container_layout.addWidget(self.host_input)
+        
+        self.host_message = InlineMessageWidget()
+        host_container_layout.addWidget(self.host_message)
+        
+        pg_layout.addRow('Host:', host_container)
+        
+        # Port field
+        port_container = QWidget()
+        port_container_layout = QVBoxLayout()
+        port_container_layout.setContentsMargins(0, 0, 0, 0)
+        port_container_layout.setSpacing(0)
+        port_container.setLayout(port_container_layout)
         
         self.port_input = QLineEdit()
         self.port_input.setValidator(QIntValidator(1, 65535))
         self.port_input.setText(str(self.connection_settings.get('port', 5432)))
-        pg_layout.addRow('Port:', self.port_input)
+        self.port_input.setPlaceholderText('5432')
+        self.port_input.textChanged.connect(lambda: self.port_message.hide_message())
+        port_container_layout.addWidget(self.port_input)
+        
+        self.port_message = InlineMessageWidget()
+        port_container_layout.addWidget(self.port_message)
+        
+        pg_layout.addRow('Port:', port_container)
+        
+        # Database field
+        db_container = QWidget()
+        db_container_layout = QVBoxLayout()
+        db_container_layout.setContentsMargins(0, 0, 0, 0)
+        db_container_layout.setSpacing(0)
+        db_container.setLayout(db_container_layout)
         
         self.database_input = QLineEdit()
         self.database_input.setPlaceholderText('university_db')
         self.database_input.setText(self.connection_settings.get('database', 'university_db'))
-        pg_layout.addRow('Database:', self.database_input)
+        self.database_input.textChanged.connect(lambda: self.db_message.hide_message())
+        db_container_layout.addWidget(self.database_input)
+        
+        self.db_message = InlineMessageWidget()
+        db_container_layout.addWidget(self.db_message)
+        
+        pg_layout.addRow('Database:', db_container)
+        
+        # Username field
+        user_container = QWidget()
+        user_container_layout = QVBoxLayout()
+        user_container_layout.setContentsMargins(0, 0, 0, 0)
+        user_container_layout.setSpacing(0)
+        user_container.setLayout(user_container_layout)
         
         self.user_input = QLineEdit()
         self.user_input.setPlaceholderText('postgres')
         self.user_input.setText(self.connection_settings.get('user', 'postgres'))
-        pg_layout.addRow('Username:', self.user_input)
+        self.user_input.textChanged.connect(lambda: self.user_message.hide_message())
+        user_container_layout.addWidget(self.user_input)
+        
+        self.user_message = InlineMessageWidget()
+        user_container_layout.addWidget(self.user_message)
+        
+        pg_layout.addRow('Username:', user_container)
+        
+        # Password field with toggle visibility
+        password_container = QWidget()
+        password_container_layout = QVBoxLayout()
+        password_container_layout.setContentsMargins(0, 0, 0, 0)
+        password_container_layout.setSpacing(0)
+        password_container.setLayout(password_container_layout)
+        
+        password_input_row = QWidget()
+        password_input_layout = QHBoxLayout()
+        password_input_layout.setContentsMargins(0, 0, 0, 0)
+        password_input_layout.setSpacing(4)
+        password_input_row.setLayout(password_input_layout)
         
         self.password_input = QLineEdit()
         self.password_input.setEchoMode(QLineEdit.Password)
@@ -182,136 +342,182 @@ class ConnectionDialog(QDialog):
         saved_password = self.connection_settings.get('password', '')
         if saved_password:
             self.password_input.setText(saved_password)
-        pg_layout.addRow('Password:', self.password_input)
+        password_input_layout.addWidget(self.password_input)
         
-        layout.addWidget(pg_group)
+        # Toggle password visibility button
+        self.toggle_password_btn = QToolButton()
+        self.toggle_password_btn.setText('👁')
+        self.toggle_password_btn.setFixedSize(36, 36)
+        self.toggle_password_btn.setCursor(Qt.PointingHandCursor)
+        self.toggle_password_btn.setStyleSheet("""
+            QToolButton {
+                background-color: #F6F8FA;
+                border: 1px solid #D0D7DE;
+                border-radius: 6px;
+                font-size: 16px;
+            }
+            QToolButton:hover {
+                background-color: #EAEEF2;
+            }
+            QToolButton:pressed {
+                background-color: #DDE2E8;
+            }
+        """)
+        self.toggle_password_btn.clicked.connect(self.toggle_password_visibility)
+        password_input_layout.addWidget(self.toggle_password_btn)
         
-        # Demo Database Option
-        demo_group = QGroupBox('💾 Demo Mode (SQLite)')
-        demo_layout = QVBoxLayout()
-        demo_layout.setSpacing(10)
-        demo_layout.setContentsMargins(15, 20, 15, 15)
-        demo_group.setLayout(demo_layout)
+        password_container_layout.addWidget(password_input_row)
         
-        self.use_demo_checkbox = QCheckBox('Use Demo Database (No PostgreSQL Required)')
-        self.use_demo_checkbox.setChecked(self.connection_settings.get('use_demo', False))
-        self.use_demo_checkbox.setToolTip('Use a local SQLite database with sample data')
-        self.use_demo_checkbox.toggled.connect(self.on_demo_mode_toggled)
-        demo_layout.addWidget(self.use_demo_checkbox)
+        self.password_message = InlineMessageWidget()
+        password_container_layout.addWidget(self.password_message)
         
-        demo_info = QLabel('✓ Includes sample data for testing\n✓ Works offline without setup\n✓ Perfect for development and demos')
-        demo_info.setWordWrap(True)
-        demo_info.setStyleSheet("color: #27ae60; font-size: 10px; padding-left: 26px; line-height: 1.6;")
-        demo_layout.addWidget(demo_info)
+        pg_layout.addRow('Password:', password_container)
         
-        layout.addWidget(demo_group)
+        layout.addWidget(self.pg_group)
         
-        # Status section
-        status_container = QWidget()
-        status_container.setStyleSheet("""
-            QWidget {
-                background-color: white;
+        # Connection Status Panel
+        self.status_panel = QFrame()
+        self.status_panel.setStyleSheet("""
+            QFrame {
+                background-color: #F6F8FA;
+                border: 1px solid #D0D7DE;
                 border-radius: 8px;
-                border: 2px solid #dcdde1;
             }
         """)
         status_layout = QVBoxLayout()
-        status_layout.setContentsMargins(15, 10, 15, 10)
+        status_layout.setContentsMargins(16, 12, 16, 12)
         status_layout.setSpacing(8)
-        status_container.setLayout(status_layout)
+        self.status_panel.setLayout(status_layout)
         
-        # Status icon and text
-        status_header_layout = QHBoxLayout()
-        self.status_icon = QLabel('⚡')
-        self.status_icon.setFont(QFont('Segoe UI', 14))
-        status_header_layout.addWidget(self.status_icon)
+        # Status message
+        status_row = QHBoxLayout()
+        status_row.setSpacing(8)
+        
+        self.status_icon = QLabel('○')
+        self.status_icon.setFont(QFont('Segoe UI', 16))
+        self.status_icon.setStyleSheet("color: #57606A;")
+        status_row.addWidget(self.status_icon)
         
         self.status_label = QLabel('Ready to connect')
-        self.status_label.setWordWrap(True)
-        self.status_label.setStyleSheet("color: #7f8c8d; font-size: 11px;")
-        status_header_layout.addWidget(self.status_label, 1)
-        status_layout.addLayout(status_header_layout)
+        self.status_label.setFont(QFont('Segoe UI', 12))
+        self.status_label.setStyleSheet("color: #24292E;")
+        status_row.addWidget(self.status_label, 1)
         
-        # Progress bar (hidden initially)
+        status_layout.addLayout(status_row)
+        
+        # Progress bar
         self.progress_bar = QProgressBar()
-        self.progress_bar.setRange(0, 0)  # Indeterminate progress
-        self.progress_bar.setVisible(False)
+        self.progress_bar.setRange(0, 0)
         self.progress_bar.setTextVisible(False)
+        self.progress_bar.setVisible(False)
+        self.progress_bar.setMaximumHeight(6)
         status_layout.addWidget(self.progress_bar)
         
-        layout.addWidget(status_container)
+        layout.addWidget(self.status_panel)
         
-        # Buttons
+        # Action Buttons
         button_layout = QHBoxLayout()
-        button_layout.setSpacing(10)
+        button_layout.setSpacing(12)
         
-        self.btn_test = QPushButton('🔍 Test Connection')
+        # Test Connection button
+        self.btn_test = QPushButton('Test Connection')
+        self.btn_test.setCursor(Qt.PointingHandCursor)
         self.btn_test.clicked.connect(self.test_connection)
         self.btn_test.setStyleSheet("""
             QPushButton {
-                background-color: #3498db;
-                color: white;
+                background-color: #F6F8FA;
+                color: #24292E;
+                border: 1px solid #D0D7DE;
             }
             QPushButton:hover {
-                background-color: #2980b9;
+                background-color: #EAEEF2;
+                border-color: #1F2328;
+            }
+            QPushButton:pressed {
+                background-color: #DDE2E8;
             }
         """)
         button_layout.addWidget(self.btn_test)
         
         button_layout.addStretch()
         
+        # Cancel button
         self.btn_cancel = QPushButton('Cancel')
+        self.btn_cancel.setCursor(Qt.PointingHandCursor)
         self.btn_cancel.clicked.connect(self.reject)
         self.btn_cancel.setStyleSheet("""
             QPushButton {
-                background-color: #95a5a6;
-                color: white;
+                background-color: #F6F8FA;
+                color: #24292E;
+                border: 1px solid #D0D7DE;
             }
             QPushButton:hover {
-                background-color: #7f8c8d;
+                background-color: #EAEEF2;
+                border-color: #1F2328;
             }
         """)
         button_layout.addWidget(self.btn_cancel)
         
-        self.btn_ok = QPushButton('✓ Connect')
+        # Connect button (primary action)
+        self.btn_ok = QPushButton('Connect')
+        self.btn_ok.setCursor(Qt.PointingHandCursor)
         self.btn_ok.clicked.connect(self.accept)
+        self.btn_ok.setDefault(True)
         self.btn_ok.setStyleSheet("""
             QPushButton {
-                background-color: #27ae60;
-                color: white;
+                background-color: #2563EB;
+                color: #FFFFFF;
                 min-width: 100px;
             }
             QPushButton:hover {
-                background-color: #229954;
+                background-color: #1D4ED8;
+            }
+            QPushButton:pressed {
+                background-color: #1E40AF;
             }
         """)
         button_layout.addWidget(self.btn_ok)
         
         layout.addLayout(button_layout)
         
-        # Update UI based on initial demo mode state
-        self.on_demo_mode_toggled(self.use_demo_checkbox.isChecked())
+        # Initialize UI state
+        self.on_connection_type_changed()
     
-    def on_demo_mode_toggled(self, checked):
-        """Handle demo mode checkbox toggle."""
-        # Enable/disable PostgreSQL fields
-        self.host_input.setEnabled(not checked)
-        self.port_input.setEnabled(not checked)
-        self.database_input.setEnabled(not checked)
-        self.user_input.setEnabled(not checked)
-        self.password_input.setEnabled(not checked)
-        
-        # Update test button text and state
-        if checked:
-            self.btn_test.setText('💾 Demo Mode Active')
-            self.btn_test.setEnabled(False)
-            self._update_status('success', 'Demo mode enabled - no connection needed')
-            self.last_connection_test_successful = True  # Demo mode is always "successful"
+    def toggle_password_visibility(self):
+        """Toggle password field visibility."""
+        if self.password_visible:
+            self.password_input.setEchoMode(QLineEdit.Password)
+            self.toggle_password_btn.setText('👁')
+            self.password_visible = False
         else:
-            self.btn_test.setText('🔍 Test Connection')
+            self.password_input.setEchoMode(QLineEdit.Normal)
+            self.toggle_password_btn.setText('👁‍🗨')
+            self.password_visible = True
+    
+    def on_connection_type_changed(self):
+        """Handle connection type selection change."""
+        is_demo = self.radio_demo.isChecked()
+        
+        # Enable/disable PostgreSQL fields
+        self.pg_group.setEnabled(not is_demo)
+        self.host_input.setEnabled(not is_demo)
+        self.port_input.setEnabled(not is_demo)
+        self.database_input.setEnabled(not is_demo)
+        self.user_input.setEnabled(not is_demo)
+        self.password_input.setEnabled(not is_demo)
+        self.toggle_password_btn.setEnabled(not is_demo)
+        
+        # Update test button and status
+        if is_demo:
+            self.btn_test.setEnabled(False)
+            self.btn_test.setText('Test Connection')
+            self._update_status('success', 'Demo mode - no connection required')
+            self.last_connection_test_successful = True
+        else:
             self.btn_test.setEnabled(True)
+            self.btn_test.setText('Test Connection')
             self._update_status('ready', 'Ready to connect')
-            self.last_connection_test_successful = False  # Reset test status when switching to PostgreSQL
+            self.last_connection_test_successful = False
     
     def load_saved_settings(self):
         """Load saved connection settings from config file."""
@@ -327,143 +533,121 @@ class ConnectionDialog(QDialog):
     def save_settings(self):
         """Save connection settings to config file."""
         try:
-            # Parse port value
             port_text = self.port_input.text().strip()
             try:
                 port_value = int(port_text) if port_text else 5432
             except ValueError:
                 port_value = 5432
             
-            # Build settings dictionary from form inputs
             settings = {
                 'host': self.host_input.text().strip() or 'localhost',
                 'port': port_value,
                 'database': self.database_input.text().strip() or 'university_db',
                 'user': self.user_input.text().strip() or 'postgres',
-                'password': self.password_input.text(),  # Keep empty string if no password
-                'use_demo': self.use_demo_checkbox.isChecked()
+                'password': self.password_input.text(),
+                'use_demo': self.radio_demo.isChecked()
             }
             
-            # Debug: Print what we're about to save
-            print(f"Saving settings to {self.CONFIG_FILE}:")
-            for key, value in settings.items():
-                if key == 'password':
-                    print(f"  {key}: {'***' if value else '(empty)'}")
-                else:
-                    print(f"  {key}: {value}")
-            
-            # Ensure directory exists
             self.CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
             
-            # Write to file
             with open(self.CONFIG_FILE, 'w') as f:
                 json.dump(settings, f, indent=2)
             
-            # Update internal settings cache
             self.connection_settings = settings
-            
-            print(f"Settings saved successfully to {self.CONFIG_FILE}")
             return True
             
         except Exception as e:
             print(f"Error saving settings: {e}")
-            import traceback
-            traceback.print_exc()
             QMessageBox.warning(self, "Save Error", f"Could not save settings: {e}")
             return False
     
     def get_connection_settings(self):
         """Get the connection settings from the dialog inputs."""
-        # Parse port value
         port_text = self.port_input.text().strip()
         try:
             port_value = int(port_text) if port_text else 5432
         except ValueError:
             port_value = 5432
         
-        # Build settings from current form values
         settings = {
             'host': self.host_input.text().strip() or 'localhost',
             'port': port_value,
             'database': self.database_input.text().strip() or 'university_db',
             'user': self.user_input.text().strip() or 'postgres',
-            'password': self.password_input.text(),  # Keep as-is, including empty string
-            'use_demo': self.use_demo_checkbox.isChecked()
+            'password': self.password_input.text(),
+            'use_demo': self.radio_demo.isChecked()
         }
         
         return settings
     
     def validate_inputs(self):
-        """Validate that required inputs are filled."""
-        if self.use_demo_checkbox.isChecked():
-            return True  # Demo mode doesn't need validation
+        """Validate inputs with inline feedback."""
+        if self.radio_demo.isChecked():
+            return True
         
-        # Validate PostgreSQL connection fields
+        is_valid = True
+        
+        # Validate host
         host = self.host_input.text().strip()
-        database = self.database_input.text().strip()
-        user = self.user_input.text().strip()
-        
         if not host:
-            self._show_validation_error("Host cannot be empty.", self.host_input)
-            return False
+            self.host_message.show_message("Host is required", "error")
+            is_valid = False
         
+        # Validate port
+        port_text = self.port_input.text().strip()
+        if not port_text:
+            self.port_message.show_message("Port is required", "error")
+            is_valid = False
+        else:
+            try:
+                port = int(port_text)
+                if port < 1 or port > 65535:
+                    self.port_message.show_message("Port must be between 1 and 65535", "error")
+                    is_valid = False
+            except ValueError:
+                self.port_message.show_message("Port must be a number", "error")
+                is_valid = False
+        
+        # Validate database
+        database = self.database_input.text().strip()
         if not database:
-            self._show_validation_error("Database name cannot be empty.", self.database_input)
-            return False
+            self.db_message.show_message("Database name is required", "error")
+            is_valid = False
         
+        # Validate username
+        user = self.user_input.text().strip()
         if not user:
-            self._show_validation_error("Username cannot be empty.", self.user_input)
-            return False
+            self.user_message.show_message("Username is required", "error")
+            is_valid = False
         
-        return True
-    
-    def _show_validation_error(self, message, field):
-        """Show validation error with styling."""
-        field.setStyleSheet("""
-            QLineEdit {
-                border: 2px solid #e74c3c;
-                background-color: #fadbd8;
-            }
-        """)
-        QMessageBox.warning(self, "⚠️ Validation Error", message)
-        field.setFocus()
-        # Reset style after focus
-        field.textChanged.connect(lambda: field.setStyleSheet(""))
+        return is_valid
     
     def test_connection(self):
-        """Test the database connection with current settings (threaded)."""
+        """Test the database connection with visual feedback."""
         settings = self.get_connection_settings()
         
         if settings['use_demo']:
-            self._update_status('success', 'Demo database will be used (always available)')
+            self._update_status('success', 'Demo database - always available')
             self.last_connection_test_successful = True
-            QMessageBox.information(
-                self,
-                "💾 Demo Mode",
-                "Demo database will be used.\n\n"
-                "✓ No connection test needed\n"
-                "✓ Always available offline\n"
-                "✓ Includes sample data"
-            )
+            self._show_success_toast('Demo Mode', 'Demo database is ready to use')
             return
         
-        # Validate inputs first
         if not self.validate_inputs():
             return
         
-        # Stop any existing validator thread
+        # Stop existing thread
         if self.validator_thread and self.validator_thread.isRunning():
             self.validator_thread.terminate()
             self.validator_thread.wait()
         
-        # Disable buttons during validation
+        # Disable UI during test
         self.btn_test.setEnabled(False)
         self.btn_ok.setEnabled(False)
         self.btn_cancel.setEnabled(False)
         self.progress_bar.setVisible(True)
         self._update_status('testing', 'Testing connection...')
         
-        # Create and start validation thread
+        # Start validation
         self.validator_thread = ConnectionValidatorThread(
             settings['host'],
             settings['port'],
@@ -477,117 +661,100 @@ class ConnectionDialog(QDialog):
         self.validator_thread.start()
     
     def _update_status(self, status_type, message):
-        """Update status display with icon and message."""
+        """Update status display with modern styling."""
         icons = {
-            'success': '✅',
-            'error': '❌',
-            'testing': '🔄',
-            'warning': '⚠️',
-            'ready': '⚡'
+            'success': '✓',
+            'error': '✕',
+            'testing': '○',
+            'ready': '○'
         }
         colors = {
-            'success': '#27ae60',
-            'error': '#e74c3c',
-            'testing': '#3498db',
-            'warning': '#f39c12',
-            'ready': '#7f8c8d'
+            'success': '#059669',
+            'error': '#DC2626',
+            'testing': '#2563EB',
+            'ready': '#57606A'
         }
         
-        self.status_icon.setText(icons.get(status_type, '⚡'))
+        self.status_icon.setText(icons.get(status_type, '○'))
+        self.status_icon.setStyleSheet(f"color: {colors.get(status_type, '#57606A')};")
         self.status_label.setText(message)
-        self.status_label.setStyleSheet(f"color: {colors.get(status_type, '#7f8c8d')}; font-size: 11px;")
+        self.status_label.setStyleSheet(f"color: {colors.get(status_type, '#24292E')};")
+    
+    def _show_success_toast(self, title, message):
+        """Show success message."""
+        QMessageBox.information(self, title, message)
     
     def on_connection_success(self, info):
         """Handle successful connection."""
         self._update_status('success', 'Connection successful!')
         self.last_connection_test_successful = True
+        
         version = info.get('version', 'Unknown')
         has_schema = info.get('has_schema', False)
         
-        message = "Successfully connected to database!\n\n"
-        message += f"📊 PostgreSQL Version: {version.split(',')[0]}\n\n"
-        if has_schema:
-            message += "✓ Schema: All required tables found"
-        else:
-            message += "⚠️ Schema: Tables missing (will be created automatically)"
+        message = f"Successfully connected to database\n\n"
+        message += f"PostgreSQL Version: {version.split(',')[0]}\n"
+        message += f"Schema Status: {'Ready' if has_schema else 'Will be created'}"
         
-        QMessageBox.information(self, "✅ Connection Successful", message)
+        QMessageBox.information(self, "Connection Successful", message)
     
     def on_connection_error(self, error_msg):
-        """Handle connection error with options."""
-        self._update_status('error', f'Connection failed: {error_msg[:50]}...')
+        """Handle connection error with helpful feedback."""
+        self._update_status('error', 'Connection failed')
         self.last_connection_test_successful = False
         
-        # Show styled error dialog
         msg_box = QMessageBox(self)
         msg_box.setIcon(QMessageBox.Critical)
-        msg_box.setWindowTitle("❌ Connection Failed")
-        msg_box.setText("Could not connect to database")
+        msg_box.setWindowTitle("Connection Failed")
+        msg_box.setText("Could not connect to the database")
         msg_box.setInformativeText(
-            f"<b>Error:</b> {error_msg}<br><br>"
-            f"<b>Please check:</b><br>"
-            f"• PostgreSQL is running<br>"
-            f"• Database exists (run create_database.py)<br>"
-            f"• Credentials are correct<br>"
-            f"• Firewall allows connection"
+            f"Error: {error_msg}\n\n"
+            f"Common solutions:\n"
+            f"• Verify PostgreSQL is running\n"
+            f"• Check host and port are correct\n"
+            f"• Ensure database exists\n"
+            f"• Verify credentials\n"
+            f"• Check firewall settings"
         )
         
-        # Add buttons
-        retry_btn = msg_box.addButton("🔄 Try Again", QMessageBox.ActionRole)
-        demo_btn = msg_box.addButton("💾 Use Demo Mode", QMessageBox.ActionRole)
+        demo_btn = msg_box.addButton("Use Demo Mode", QMessageBox.ActionRole)
+        retry_btn = msg_box.addButton("Retry", QMessageBox.ActionRole)
         cancel_btn = msg_box.addButton("Cancel", QMessageBox.RejectRole)
         
-        msg_box.setDefaultButton(retry_btn)
         msg_box.exec_()
         
         if msg_box.clickedButton() == demo_btn:
-            self.use_demo_checkbox.setChecked(True)
-            self._update_status('success', 'Switched to demo mode')
-            self.last_connection_test_successful = True
-        elif msg_box.clickedButton() == retry_btn:
-            self._update_status('ready', 'Ready to connect')
+            self.radio_demo.setChecked(True)
+            self.on_connection_type_changed()
     
     def on_validation_finished(self):
-        """Called when validation thread finishes."""
-        self.btn_test.setEnabled(True)
+        """Re-enable UI after validation."""
+        self.btn_test.setEnabled(not self.radio_demo.isChecked())
         self.btn_ok.setEnabled(True)
         self.btn_cancel.setEnabled(True)
         self.progress_bar.setVisible(False)
     
     def accept(self):
-        """Handle Connect button click."""
-        # First, validate inputs
+        """Handle Connect button with validation."""
         if not self.validate_inputs():
             return
         
-        # Get current settings from form
         settings = self.get_connection_settings()
         
-        # Debug: Print settings to verify they're captured
-        print(f"Connection settings captured:")
-        print(f"  Use Demo: {settings['use_demo']}")
-        print(f"  Host: {settings['host']}")
-        print(f"  Port: {settings['port']}")
-        print(f"  Database: {settings['database']}")
-        print(f"  User: {settings['user']}")
-        print(f"  Password: {'***' if settings['password'] else '(empty)'}")
-        
-        # Demo mode always works
+        # Demo mode is always ready
         if settings['use_demo']:
-            print("Demo mode selected - saving and accepting...")
             if not self.save_settings():
                 QMessageBox.warning(self, "Error", "Could not save settings.")
                 return
-            print("Settings saved successfully")
             super().accept()
             return
         
-        # For PostgreSQL, require successful test
+        # PostgreSQL requires successful test
         if not self.last_connection_test_successful:
             reply = QMessageBox.question(
                 self,
-                "⚠️ Connection Not Tested",
-                "Connection has not been tested yet.\n\n"
+                "Connection Not Tested",
+                "The connection has not been tested yet.\n\n"
                 "Would you like to test it now?",
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.Yes
@@ -597,19 +764,27 @@ class ConnectionDialog(QDialog):
                 self.test_connection()
                 return
             else:
-                QMessageBox.warning(
-                    self,
-                    "Test Required",
-                    "Please test your connection before proceeding.\n\n"
-                    "Click 'Test Connection' to verify settings."
-                )
                 return
         
-        # Connection was tested successfully, save and accept
-        print("PostgreSQL connection tested successfully - saving and accepting...")
+        # Save and accept
         if not self.save_settings():
             QMessageBox.warning(self, "Error", "Could not save settings.")
             return
         
-        print("Settings saved successfully")
         super().accept()
+    
+    def keyPressEvent(self, event):
+        """Handle keyboard shortcuts."""
+        # Escape key closes dialog
+        if event.key() == Qt.Key_Escape:
+            self.reject()
+        # Enter/Return on focused button triggers it
+        elif event.key() in (Qt.Key_Return, Qt.Key_Enter):
+            if self.btn_ok.hasFocus():
+                self.accept()
+            elif self.btn_test.hasFocus():
+                self.test_connection()
+            elif self.btn_cancel.hasFocus():
+                self.reject()
+        else:
+            super().keyPressEvent(event)

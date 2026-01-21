@@ -113,7 +113,7 @@ class MarksAttendanceWindow(QMainWindow):
                             FOREIGN KEY(student_id) REFERENCES Student(Student_ID),
                             FOREIGN KEY(course_id, dept_id) REFERENCES Course(Course_ID, Department_ID)
                         )
-                    """))
+                    """)
                 
                 self.db_connection.commit()
         except Exception as e:

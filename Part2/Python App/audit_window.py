@@ -1,452 +1,739 @@
-"""
-Audit Window
-Interface for viewing audit logs from Marks and Attendance tables using statement triggers.
-"""
-
-from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
-                             QPushButton, QLabel, QTableWidget, QTableWidgetItem, 
-                             QMessageBox, QGroupBox, QTabWidget, QHeaderView,
-                             QComboBox, QDateEdit, QDateTimeEdit)
-from PyQt5.QtCore import Qt, QDate, QDateTime
-from PyQt5.QtGui import QFont
-from db_connection import get_db_connection
-import os
+import sys
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
+                             QHBoxLayout, QPushButton, QLabel, QMessageBox, QScrollArea)
+from PyQt5.QtCore import Qt, QPropertyAnimation, QEasingCurve
+from PyQt5.QtGui import QFont, QCursor
+import types
+from pathlib import Path
+import json
 
 
-class AuditWindow(QMainWindow):
-    """Window for viewing audit logs from Marks and Attendance tables."""
+class DatabaseConnectionManager:
+    """Centralized database connection manager with stub system."""
     
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        # Try to get connection from parent (MainWindow) if available
-        if parent and hasattr(parent, 'db_connection') and parent.db_connection is not None:
-            self.db_connection = parent.db_connection
+    def __init__(self):
+        self._connection = None
+        self._stubs_initialized = False
+        self.use_demo = False
+        self.in_memory = False
+    
+    def initialize_stubs(self):
+        """Create lightweight stub modules for lazy loading."""
+        if self._stubs_initialized:
+            return
+        
+        # db_connection stub
+        mod = types.ModuleType('db_connection')
+        mod.get_db_connection = lambda: self.get_connection()
+        
+        # db_connection_demo stub
+        mod_demo = types.ModuleType('db_connection_demo')
+        mod_demo.get_demo_db_connection = lambda: self.get_connection()
+        
+        # Handle DemoDatabaseConnection class access
+        def _demo_getattr(name):
+            if name == 'DemoDatabaseConnection':
+                import importlib
+                real_module = importlib.import_module('db_connection_demo')
+                return real_module.DemoDatabaseConnection
+            raise AttributeError(f"module 'db_connection_demo' has no attribute '{name}'")
+        
+        mod_demo.__getattr__ = _demo_getattr
+        
+        # Insert into sys.modules
+        sys.modules['db_connection'] = mod
+        sys.modules['db_connection_demo'] = mod_demo
+        
+        self._stubs_initialized = True
+    
+    def get_connection(self):
+        """Get the current database connection."""
+        if self._connection is None:
+            raise Exception("Database connection not initialized. Call connect() first.")
+        return self._connection
+    
+    def connect(self, use_demo=False, db_path=None):
+        """
+        Establish database connection with fallback strategy.
+        
+        Args:
+            use_demo: If True, use demo SQLite database
+            db_path: Path to SQLite database (for demo mode)
+        
+        Returns:
+            tuple: (success: bool, message: str, connection_type: str)
+        """
+        # Ensure static demo database exists
+        self._ensure_static_demo()
+        
+        # Try requested connection type first
+        if use_demo:
+            return self._connect_demo(db_path)
         else:
-            self.db_connection = get_db_connection()
-            if self.db_connection is None:
-                raise Exception("No database connection available. Please check your database setup.")
-        self.db_connection.connect()
-        self.init_ui()
-        self.setup_audit_tables()
-        self.setup_triggers()
-        self.load_audit_logs()
+            return self._connect_postgresql()
     
-    def _is_demo_mode(self):
-        """Check if using demo database (SQLite)."""
-        from db_connection_demo import DemoDatabaseConnection
-        return isinstance(self.db_connection, DemoDatabaseConnection)
-    
-    def setup_audit_tables(self):
-        """Create audit tables for Marks and Attendance if they don't exist."""
+    def _connect_postgresql(self):
+        """Connect to PostgreSQL database."""
         try:
-            cursor = self.db_connection.get_cursor()
-            # Create audit tables (use SQLite-compatible definitions when in demo mode)
-            is_demo = self._is_demo_mode()
-            if is_demo:
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS Marks_Audit_Log (
-                        LogID INTEGER PRIMARY KEY AUTOINCREMENT,
-                        OperationType VARCHAR(50) NOT NULL,
-                        OperationTime TEXT NOT NULL,
-                        Description TEXT,
-                        RowsAffected INTEGER DEFAULT 0
-                    )
-                """)
-
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS Attendance_Audit_Log (
-                        LogID INTEGER PRIMARY KEY AUTOINCREMENT,
-                        OperationType VARCHAR(50) NOT NULL,
-                        OperationTime TEXT NOT NULL,
-                        Description TEXT,
-                        RowsAffected INTEGER DEFAULT 0
-                    )
-                """)
-                self.db_connection.commit()
+            # Import the real module directly, bypassing stub temporarily
+            import importlib
+            
+            # Remove stub to import real module
+            old_stub = sys.modules.get('db_connection')
+            if 'db_connection' in sys.modules:
+                del sys.modules['db_connection']
+            
+            try:
+                # Import real db_connection module
+                db_module = importlib.import_module('db_connection')
+                
+                # Get connection from the real module
+                self._connection = db_module.get_db_connection()
+            finally:
+                # Restore stub
+                if old_stub:
+                    sys.modules['db_connection'] = old_stub
+            
+            if not self._connection:
+                return False, "Database connection object could not be created", None
+            
+            # Call connect() method if available
+            connect_method = getattr(self._connection, "connect", None)
+            if callable(connect_method):
+                connect_method()
+            
+            # Check and initialize schema if needed
+            self._check_and_init_schema()
+            
+            self.use_demo = False
+            self.in_memory = False
+            return True, "Database connected successfully", "postgresql"
+            
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return False, f"PostgreSQL connection failed: {str(e)}", None
+    
+    def _connect_demo(self, db_path=None):
+        """Connect to demo SQLite database with fallback to in-memory."""
+        import importlib
+        
+        # Always import the real module bypassing stub
+        old_stub = sys.modules.get('db_connection_demo')
+        if 'db_connection_demo' in sys.modules:
+            del sys.modules['db_connection_demo']
+        
+        try:
+            real_demo_module = importlib.import_module('db_connection_demo')
+            DemoDatabaseConnection = real_demo_module.DemoDatabaseConnection
+        finally:
+            # Restore stub
+            if old_stub:
+                sys.modules['db_connection_demo'] = old_stub
+        
+        # Try file-based demo database first
+        if db_path != ':memory:':
+            try:
+                # Use the default demo database path
+                demo_conn = DemoDatabaseConnection()  # No db_path = use default
+                demo_conn.connect()
+                
+                self._connection = demo_conn
+                self.use_demo = True
+                self.in_memory = False
+                return True, "Demo database connected successfully (SQLite)", "demo_file"
+            
+            except Exception as file_error:
+                # Continue to in-memory fallback
+                print(f"File-based demo failed: {file_error}")
+        
+        # Fallback to in-memory database
+        try:
+            # Check if DemoDatabaseConnection accepts db_path parameter
+            import inspect
+            sig = inspect.signature(DemoDatabaseConnection.__init__)
+            
+            if 'db_path' in sig.parameters:
+                demo_conn = DemoDatabaseConnection(db_path=':memory:')
             else:
-                # Create Marks_Audit_Log table
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS Marks_Audit_Log (
-                        LogID SERIAL PRIMARY KEY,
-                        OperationType VARCHAR(50) NOT NULL,
-                        OperationTime TIMESTAMP NOT NULL,
-                        Description TEXT,
-                        RowsAffected INTEGER DEFAULT 0
-                    )
-                """)
-
-                # Create Attendance_Audit_Log table
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS Attendance_Audit_Log (
-                        LogID SERIAL PRIMARY KEY,
-                        OperationType VARCHAR(50) NOT NULL,
-                        OperationTime TIMESTAMP NOT NULL,
-                        Description TEXT,
-                        RowsAffected INTEGER DEFAULT 0
-                    )
-                """)
-
-                self.db_connection.commit()
-        except Exception as e:
-            print(f"Note: Audit tables setup: {e}")
+                # Create default instance and manually set to in-memory
+                demo_conn = DemoDatabaseConnection()
+                # Override the db_path before connecting
+                demo_conn.db_path = ':memory:'
+            
+            demo_conn.connect()
+            
+            self._connection = demo_conn
+            self.use_demo = True
+            self.in_memory = True
+            return True, "Using in-memory demo database (SQLite)", "demo_memory"
+            
+        except Exception as mem_error:
+            return False, f"Demo database connection failed.\nFile DB error: {str(file_error) if 'file_error' in locals() else 'Not attempted'}\nIn-memory error: {str(mem_error)}", None
     
-    def setup_triggers(self):
-        """Create trigger functions and triggers for Marks and Attendance tables."""
+    def _ensure_static_demo(self):
+        """Ensure static demo database exists."""
         try:
-            cursor = self.db_connection.get_cursor()
-            # Triggers and functions are Postgres-specific; for demo mode skip creating PL/pgSQL functions
-            is_demo = self._is_demo_mode()
-            if is_demo:
-                # Skip function/trigger creation on SQLite demo — triggers are optional for demo
-                return
-
-            # Function for Marks audit (Postgres)
-            cursor.execute("""
-                CREATE OR REPLACE FUNCTION audit_marks_changes_statement()
-                RETURNS TRIGGER 
-                LANGUAGE plpgsql AS $$
-                BEGIN
-                    INSERT INTO Marks_Audit_Log (OperationType, OperationTime, Description, RowsAffected)
-                    VALUES (
-                        TG_OP, 
-                        CURRENT_TIMESTAMP, 
-                        'A statement-level DML operation occurred on Marks table.',
-                        0
-                    );
-                    
-                    RETURN NULL;
-                END;
-                $$;
-            """)
-
-            # Function for Attendance audit
-            cursor.execute("""
-                CREATE OR REPLACE FUNCTION audit_attendance_changes_statement()
-                RETURNS TRIGGER 
-                LANGUAGE plpgsql AS $$
-                BEGIN
-                    INSERT INTO Attendance_Audit_Log (OperationType, OperationTime, Description, RowsAffected)
-                    VALUES (
-                        TG_OP, 
-                        CURRENT_TIMESTAMP, 
-                        'A statement-level DML operation occurred on Attendance table.',
-                        0
-                    );
-                    
-                    RETURN NULL;
-                END;
-                $$;
-            """)
-
-            # Drop existing triggers if they exist (to avoid errors on recreation)
-            cursor.execute("""
-                DROP TRIGGER IF EXISTS trg_audit_marks_statement ON Marks;
-            """)
-            cursor.execute("""
-                DROP TRIGGER IF EXISTS trg_audit_attendance_statement ON Attendance;
-            """)
-
-            # Create trigger for Marks table
-            cursor.execute("""
-                CREATE TRIGGER trg_audit_marks_statement 
-                AFTER INSERT OR UPDATE OR DELETE ON Marks
-                FOR EACH STATEMENT 
-                EXECUTE FUNCTION audit_marks_changes_statement();
-            """)
-
-            # Create trigger for Attendance table
-            cursor.execute("""
-                CREATE TRIGGER trg_audit_attendance_statement 
-                AFTER INSERT OR UPDATE OR DELETE ON Attendance
-                FOR EACH STATEMENT 
-                EXECUTE FUNCTION audit_attendance_changes_statement();
-            """)
-
-            self.db_connection.connection.commit()
+            project_root = Path(__file__).resolve().parent.parent.parent
+            demo_db = project_root / "demo" / "university_demo.db"
+            
+            if not demo_db.exists():
+                try:
+                    from setup_static_demo import create_static_demo_database
+                    create_static_demo_database()
+                except Exception as e:
+                    print(f"Warning: Could not create static demo database: {e}")
         except Exception as e:
-            print(f"Note: Triggers setup: {e}")
-            # Try to continue even if triggers already exist
+            print(f"Warning: Could not ensure static demo database: {e}")
+    
+    def _check_and_init_schema(self):
+        """Check and initialize schema for PostgreSQL connections."""
+        try:
+            from connection_validator import check_schema_exists, initialize_database_schema
+            
+            actual_conn = getattr(self._connection, 'connection', None)
+            if actual_conn:
+                if not check_schema_exists(actual_conn):
+                    project_root = Path(__file__).parent.parent.parent
+                    initialize_database_schema(actual_conn, project_root)
+        except Exception as e:
+            print(f"Warning: Schema check/initialization failed: {e}")
+    
+    def close(self):
+        """Close database connection."""
+        if self._connection:
+            try:
+                # Commit any pending changes
+                try:
+                    self._connection.commit()
+                except:
+                    pass
+                self._connection.close()
+            except:
+                pass
+            self._connection = None
+
+
+class MainWindow(QMainWindow):
+    """Main application window with navigation menu."""
+    
+    def __init__(self, connection_manager):
+        super().__init__()
+        self.conn_manager = connection_manager
+        self.active_window = None
+        
+        self.init_ui()
     
     def init_ui(self):
         """Initialize the user interface."""
-        self.setWindowTitle('Audit Logs - Marks & Attendance')
-        self.setGeometry(50, 50, 1400, 900)
+        self.setWindowTitle('University Database Management System')
+        self.setGeometry(100, 100, 1280, 840)
         
-        # Central widget
+        # Modern, refined color scheme with better contrast
+        self.setStyleSheet("""
+            QMainWindow {
+                background-color: #F8F9FA;
+            }
+            QMenuBar {
+                background-color: #1A1D23;
+                color: #FFFFFF;
+                padding: 8px;
+                font-size: 14px;
+                border-bottom: 1px solid #2D3139;
+            }
+            QMenuBar::item {
+                background-color: transparent;
+                padding: 8px 16px;
+                border-radius: 6px;
+            }
+            QMenuBar::item:selected {
+                background-color: #2D3139;
+            }
+            QMenu {
+                background-color: #FFFFFF;
+                border: 1px solid #E1E4E8;
+                border-radius: 8px;
+                padding: 4px;
+            }
+            QMenu::item {
+                padding: 8px 24px 8px 16px;
+                border-radius: 4px;
+                color: #24292E;
+            }
+            QMenu::item:selected {
+                background-color: #2563EB;
+                color: #FFFFFF;
+            }
+            QStatusBar {
+                background-color: #FFFFFF;
+                color: #57606A;
+                font-size: 13px;
+                border-top: 1px solid #E1E4E8;
+                padding: 4px 8px;
+            }
+        """)
+        
+        # Add menu bar
+        menubar = self.menuBar()
+        
+        # Settings menu
+        settings_menu = menubar.addMenu('Settings')
+        connection_action = settings_menu.addAction('Database Connection...')
+        connection_action.triggered.connect(self.show_connection_dialog)
+        
+        # Help menu
+        help_menu = menubar.addMenu('Help')
+        about_action = help_menu.addAction('About')
+        about_action.triggered.connect(self.show_about)
+        
+        # Central widget with scrolling
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setFrameShape(QScrollArea.NoFrame)
+        scroll_area.setStyleSheet("background-color: #F8F9FA;")
+        self.setCentralWidget(scroll_area)
+        
         central_widget = QWidget()
-        self.setCentralWidget(central_widget)
+        scroll_area.setWidget(central_widget)
         
-        # Main layout
         main_layout = QVBoxLayout()
+        main_layout.setContentsMargins(48, 32, 48, 32)
+        main_layout.setSpacing(24)
         central_widget.setLayout(main_layout)
         
-        # Title
-        title = QLabel('Audit Logs - Marks & Attendance')
-        title_font = QFont()
-        title_font.setPointSize(18)
-        title_font.setBold(True)
+        # Header section - refined and modern
+        header_widget = QWidget()
+        header_layout = QVBoxLayout()
+        header_layout.setSpacing(8)
+        header_widget.setLayout(header_layout)
+        
+        # Title with clean design
+        title = QLabel('University Database Management')
+        title_font = QFont('Segoe UI', 28, QFont.Bold)
         title.setFont(title_font)
         title.setAlignment(Qt.AlignCenter)
-        main_layout.addWidget(title)
+        title.setStyleSheet("""
+            color: #1A1D23;
+            padding: 24px;
+            background-color: #FFFFFF;
+            border-radius: 12px;
+            border: 1px solid #E1E4E8;
+        """)
+        header_layout.addWidget(title)
         
-        # Info label
-        info_label = QLabel('This module displays audit logs for INSERT, UPDATE, and DELETE operations on Marks and Attendance tables.')
-        info_label.setWordWrap(True)
-        info_label.setStyleSheet("padding: 10px; background-color: #e8f4f8; border-radius: 5px;")
-        main_layout.addWidget(info_label)
+        subtitle = QLabel('Choose a module to begin managing your institution')
+        subtitle.setAlignment(Qt.AlignCenter)
+        subtitle_font = QFont('Segoe UI', 14)
+        subtitle.setFont(subtitle_font)
+        subtitle.setStyleSheet("padding: 8px; color: #57606A;")
+        header_layout.addWidget(subtitle)
         
-        # Tab widget for different audit logs
-        self.tabs = QTabWidget()
-        main_layout.addWidget(self.tabs)
+        main_layout.addWidget(header_widget)
         
-        # Marks Audit Tab
-        marks_tab = QWidget()
-        marks_layout = QVBoxLayout()
-        marks_tab.setLayout(marks_layout)
+        # Modules section header
+        modules_label = QLabel('Available Modules')
+        modules_label.setFont(QFont('Segoe UI', 18, QFont.Bold))
+        modules_label.setStyleSheet("color: #1A1D23; padding: 16px 0 8px 0;")
+        main_layout.addWidget(modules_label)
         
-        # Filter controls for Marks
-        marks_filter_group = QGroupBox('Filter Marks Audit Log')
-        marks_filter_layout = QHBoxLayout()
-        marks_filter_group.setLayout(marks_filter_layout)
+        # Grid layout for module buttons - grouped by function
+        buttons_widget = QWidget()
+        buttons_layout = QVBoxLayout()
+        buttons_layout.setSpacing(16)
+        buttons_widget.setLayout(buttons_layout)
         
-        marks_filter_layout.addWidget(QLabel('Operation Type:'))
-        self.marks_operation_filter = QComboBox()
-        self.marks_operation_filter.addItems(['All', 'INSERT', 'UPDATE', 'DELETE'])
-        self.marks_operation_filter.currentIndexChanged.connect(self.load_marks_audit)
-        marks_filter_layout.addWidget(self.marks_operation_filter)
+        # Group 1: Core Operations
+        core_label = QLabel('Core Operations')
+        core_label.setFont(QFont('Segoe UI', 13, QFont.Medium))
+        core_label.setStyleSheet("color: #57606A; padding: 8px 0 4px 0;")
+        buttons_layout.addWidget(core_label)
         
-        marks_filter_layout.addStretch()
+        core_row = QHBoxLayout()
+        core_row.setSpacing(16)
         
-        self.btn_refresh_marks = QPushButton('Refresh')
-        self.btn_refresh_marks.clicked.connect(self.load_marks_audit)
-        self.btn_refresh_marks.setStyleSheet("background-color: #3498db; color: white; padding: 8px;")
-        marks_filter_layout.addWidget(self.btn_refresh_marks)
+        crud_btn = self.create_menu_button(
+            'CRUD Operations',
+            'Create, read, update, and delete database records',
+            '#2563EB'
+        )
+        crud_btn.clicked.connect(self.open_crud_operations)
+        core_row.addWidget(crud_btn)
         
-        marks_layout.addWidget(marks_filter_group)
+        assign_btn = self.create_menu_button(
+            'Assignments & Reservations',
+            'Manage course assignments and room bookings',
+            '#7C3AED'
+        )
+        assign_btn.clicked.connect(self.open_assignment_reservations)
+        core_row.addWidget(assign_btn)
         
-        # Marks audit table
-        marks_table_label = QLabel('Marks Audit Log')
-        marks_table_label.setFont(QFont('Arial', 12, QFont.Bold))
-        marks_layout.addWidget(marks_table_label)
+        buttons_layout.addLayout(core_row)
         
-        self.marks_audit_table = QTableWidget()
-        self.marks_audit_table.setSelectionBehavior(QTableWidget.SelectRows)
-        self.marks_audit_table.horizontalHeader().setStretchLastSection(True)
-        self.marks_audit_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-        marks_layout.addWidget(self.marks_audit_table)
+        # Group 2: Academic Management
+        academic_label = QLabel('Academic Management')
+        academic_label.setFont(QFont('Segoe UI', 13, QFont.Medium))
+        academic_label.setStyleSheet("color: #57606A; padding: 16px 0 4px 0;")
+        buttons_layout.addWidget(academic_label)
         
-        self.tabs.addTab(marks_tab, 'Marks Audit Log')
+        academic_row = QHBoxLayout()
+        academic_row.setSpacing(16)
         
-        # Attendance Audit Tab
-        attendance_tab = QWidget()
-        attendance_layout = QVBoxLayout()
-        attendance_tab.setLayout(attendance_layout)
+        marks_btn = self.create_menu_button(
+            'Marks & Attendance',
+            'Record and track student marks and attendance',
+            '#DC2626'
+        )
+        marks_btn.clicked.connect(self.open_marks_attendance)
+        academic_row.addWidget(marks_btn)
         
-        # Filter controls for Attendance
-        attendance_filter_group = QGroupBox('Filter Attendance Audit Log')
-        attendance_filter_layout = QHBoxLayout()
-        attendance_filter_group.setLayout(attendance_filter_layout)
+        grading_btn = self.create_menu_button(
+            'Grading & Results',
+            'Process grades and generate student results',
+            '#059669'
+        )
+        grading_btn.clicked.connect(self.open_grading_results)
+        academic_row.addWidget(grading_btn)
         
-        attendance_filter_layout.addWidget(QLabel('Operation Type:'))
-        self.attendance_operation_filter = QComboBox()
-        self.attendance_operation_filter.addItems(['All', 'INSERT', 'UPDATE', 'DELETE'])
-        self.attendance_operation_filter.currentIndexChanged.connect(self.load_attendance_audit)
-        attendance_filter_layout.addWidget(self.attendance_operation_filter)
+        buttons_layout.addLayout(academic_row)
         
-        attendance_filter_layout.addStretch()
+        # Group 3: Analytics & Audit
+        analytics_label = QLabel('Analytics & Audit')
+        analytics_label.setFont(QFont('Segoe UI', 13, QFont.Medium))
+        analytics_label.setStyleSheet("color: #57606A; padding: 16px 0 4px 0;")
+        buttons_layout.addWidget(analytics_label)
         
-        self.btn_refresh_attendance = QPushButton('Refresh')
-        self.btn_refresh_attendance.clicked.connect(self.load_attendance_audit)
-        self.btn_refresh_attendance.setStyleSheet("background-color: #3498db; color: white; padding: 8px;")
-        attendance_filter_layout.addWidget(self.btn_refresh_attendance)
+        analytics_row = QHBoxLayout()
+        analytics_row.setSpacing(16)
         
-        attendance_layout.addWidget(attendance_filter_group)
+        reporting_btn = self.create_menu_button(
+            'SQL Reporting',
+            'Execute queries and generate custom reports',
+            '#0891B2'
+        )
+        reporting_btn.clicked.connect(self.open_reporting)
+        analytics_row.addWidget(reporting_btn)
         
-        # Attendance audit table
-        attendance_table_label = QLabel('Attendance Audit Log')
-        attendance_table_label.setFont(QFont('Arial', 12, QFont.Bold))
-        attendance_layout.addWidget(attendance_table_label)
+        audit_btn = self.create_menu_button(
+            'Audit Logs',
+            'Review system audit trails and trigger logs',
+            '#64748B'
+        )
+        audit_btn.clicked.connect(self.open_audit)
+        analytics_row.addWidget(audit_btn)
         
-        self.attendance_audit_table = QTableWidget()
-        self.attendance_audit_table.setSelectionBehavior(QTableWidget.SelectRows)
-        self.attendance_audit_table.horizontalHeader().setStretchLastSection(True)
-        self.attendance_audit_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-        attendance_layout.addWidget(self.attendance_audit_table)
+        buttons_layout.addLayout(analytics_row)
         
-        self.tabs.addTab(attendance_tab, 'Attendance Audit Log')
+        main_layout.addWidget(buttons_widget)
+        main_layout.addStretch()
         
-        # Summary Tab
-        summary_tab = QWidget()
-        summary_layout = QVBoxLayout()
-        summary_tab.setLayout(summary_layout)
+        # Footer - refined info panel
+        footer = QLabel('Tip: Switch between PostgreSQL and Demo mode in Settings → Database Connection')
+        footer.setAlignment(Qt.AlignCenter)
+        footer.setStyleSheet("""
+            color: #57606A;
+            font-size: 14px;
+            padding: 16px;
+            background-color: #FFFFFF;
+            border-radius: 8px;
+            border: 1px solid #E1E4E8;
+        """)
+        main_layout.addWidget(footer)
         
-        summary_label = QLabel('Audit Summary')
-        summary_label.setFont(QFont('Arial', 12, QFont.Bold))
-        summary_layout.addWidget(summary_label)
-        
-        self.summary_table = QTableWidget()
-        self.summary_table.setSelectionBehavior(QTableWidget.SelectRows)
-        self.summary_table.horizontalHeader().setStretchLastSection(True)
-        self.summary_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-        summary_layout.addWidget(self.summary_table)
-        
-        btn_refresh_summary = QPushButton('Refresh Summary')
-        btn_refresh_summary.clicked.connect(self.load_summary)
-        btn_refresh_summary.setStyleSheet("background-color: #27ae60; color: white; padding: 8px;")
-        summary_layout.addWidget(btn_refresh_summary)
-        
-        self.tabs.addTab(summary_tab, 'Summary')
+        # Update status bar
+        self._update_status_bar()
     
-    def load_audit_logs(self):
-        """Load all audit logs."""
-        self.load_marks_audit()
-        self.load_attendance_audit()
-        self.load_summary()
+    def show_about(self):
+        """Show about dialog."""
+        QMessageBox.about(
+            self,
+            "About University Database Management System",
+            "<h3>University Database Management System</h3>"
+            "<p>Version 1.0</p>"
+            "<p>A comprehensive database management application for educational institutions.</p>"
+            "<p><b>Features:</b></p>"
+            "<ul>"
+            "<li>CRUD Operations for all entities</li>"
+            "<li>Course assignments and room reservations</li>"
+            "<li>Student marks and attendance tracking</li>"
+            "<li>Automated grading and results processing</li>"
+            "<li>Advanced SQL reporting</li>"
+            "<li>Complete audit trail</li>"
+            "</ul>"
+            "<p><b>Database Support:</b> PostgreSQL and SQLite</p>"
+            "<p>Developed by Hassani Fateh and Raid Kahlrass</p>"
+        )
     
-    def load_marks_audit(self):
-        """Load Marks audit log."""
-        try:
-            operation_filter = self.marks_operation_filter.currentText()
+    def _update_status_bar(self):
+        """Update status bar with connection info."""
+        if self.conn_manager.in_memory:
+            status = '● In-memory demo database (SQLite) • Data will not persist'
+        elif self.conn_manager.use_demo:
+            status = '● Demo database connected (SQLite)'
+        else:
+            status = '● Connected to PostgreSQL'
+        
+        self.statusBar().showMessage(status)
+    
+    def create_menu_button(self, text, tooltip, color='#2563EB'):
+        """Create a modern, accessible menu button with proper contrast."""
+        button = QPushButton(text)
+        button.setToolTip(tooltip)
+        button.setMinimumHeight(96)
+        button.setFont(QFont('Segoe UI', 13, QFont.DemiBold))
+        button.setCursor(Qt.PointingHandCursor)
+        
+        # Hover color calculation
+        hover_color = self._adjust_color(color, -15)
+        pressed_color = self._adjust_color(color, -25)
+        
+        button.setStyleSheet(f"""
+            QPushButton {{
+                background: {color};
+                color: #FFFFFF;
+                border: none;
+                border-radius: 10px;
+                padding: 20px 24px;
+                text-align: left;
+                font-weight: 600;
+            }}
+            QPushButton:hover {{
+                background: {hover_color};
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+            }}
+            QPushButton:pressed {{
+                background: {pressed_color};
+                transform: translateY(1px);
+            }}
+        """)
+        return button
+    
+    def _adjust_color(self, hex_color, amount):
+        """Adjust hex color brightness by amount."""
+        hex_color = hex_color.lstrip('#')
+        r, g, b = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+        
+        r = max(0, min(255, r + amount))
+        g = max(0, min(255, g + amount))
+        b = max(0, min(255, b + amount))
+        
+        return f'#{r:02x}{g:02x}{b:02x}'
+    
+    def show_connection_dialog(self):
+        """Show connection dialog to user."""
+        from connection_dialog import ConnectionDialog
+        
+        dialog = ConnectionDialog(self)
+        if dialog.exec_() == dialog.Accepted:
+            settings = dialog.get_connection_settings()
+            use_demo = settings.get('use_demo', False)
             
-            if operation_filter == 'All':
-                query = """
-                    SELECT LogID, OperationType, OperationTime, Description, RowsAffected
-                    FROM Marks_Audit_Log
-                    ORDER BY OperationTime DESC
-                """
-                params = ()
+            # Attempt connection
+            success, message, conn_type = self.conn_manager.connect(use_demo=use_demo)
+            
+            if success:
+                self._update_status_bar()
             else:
-                query = """
-                    SELECT LogID, OperationType, OperationTime, Description, RowsAffected
-                    FROM Marks_Audit_Log
-                    WHERE OperationType = %s
-                    ORDER BY OperationTime DESC
-                """
-                params = (operation_filter,)
-            
-            cursor = self.db_connection.get_cursor()
-            cursor.execute(query, params)
-            results = cursor.fetchall()
-            column_names = ['Log ID', 'Operation Type', 'Operation Time', 'Description', 'Rows Affected']
-            
-            self.marks_audit_table.setRowCount(len(results))
-            self.marks_audit_table.setColumnCount(len(column_names))
-            self.marks_audit_table.setHorizontalHeaderLabels(column_names)
-            
-            for row_idx, row in enumerate(results):
-                for col_idx, value in enumerate(row):
-                    item = QTableWidgetItem(str(value) if value is not None else '')
-                    item.setFlags(item.flags() & ~Qt.ItemIsEditable)
-                    
-                    # Color code by operation type
-                    if col_idx == 1:  # OperationType column
-                        if value == 'INSERT':
-                            item.setBackground(Qt.green)
-                        elif value == 'UPDATE':
-                            item.setBackground(Qt.yellow)
-                        elif value == 'DELETE':
-                            item.setBackground(Qt.red)
-                    
-                    self.marks_audit_table.setItem(row_idx, col_idx, item)
-            
-            self.marks_audit_table.resizeColumnsToContents()
-        except Exception as e:
-            QMessageBox.warning(self, 'Error', f'Failed to load Marks audit log:\n{str(e)}')
+                # Show error and options
+                self._show_connection_error(message)
     
-    def load_attendance_audit(self):
-        """Load Attendance audit log."""
-        try:
-            operation_filter = self.attendance_operation_filter.currentText()
-            
-            if operation_filter == 'All':
-                query = """
-                    SELECT LogID, OperationType, OperationTime, Description, RowsAffected
-                    FROM Attendance_Audit_Log
-                    ORDER BY OperationTime DESC
-                """
-                params = ()
+    def _show_connection_error(self, error_message):
+        """Show connection error dialog with options."""
+        msg_box = QMessageBox(self)
+        msg_box.setIcon(QMessageBox.Critical)
+        msg_box.setWindowTitle("Connection Failed")
+        msg_box.setText("Could not establish database connection")
+        msg_box.setInformativeText(f"{error_message}\n\nWhat would you like to do?")
+        
+        retry_btn = msg_box.addButton("Try Again", QMessageBox.ActionRole)
+        demo_btn = msg_box.addButton("Use Demo Mode", QMessageBox.ActionRole)
+        cancel_btn = msg_box.addButton("Cancel", QMessageBox.RejectRole)
+        
+        msg_box.setDefaultButton(retry_btn)
+        msg_box.exec_()
+        
+        if msg_box.clickedButton() == retry_btn:
+            self.show_connection_dialog()
+        elif msg_box.clickedButton() == demo_btn:
+            success, message, conn_type = self.conn_manager.connect(use_demo=True)
+            if success:
+                QMessageBox.information(
+                    self,
+                    "Using Demo Mode",
+                    "Switched to demo database mode.\n\n"
+                    "You can change connection settings later from the menu."
+                )
+                self._update_status_bar()
             else:
-                query = """
-                    SELECT LogID, OperationType, OperationTime, Description, RowsAffected
-                    FROM Attendance_Audit_Log
-                    WHERE OperationType = %s
-                    ORDER BY OperationTime DESC
-                """
-                params = (operation_filter,)
-            
-            cursor = self.db_connection.get_cursor()
-            cursor.execute(query, params)
-            results = cursor.fetchall()
-            column_names = ['Log ID', 'Operation Type', 'Operation Time', 'Description', 'Rows Affected']
-            
-            self.attendance_audit_table.setRowCount(len(results))
-            self.attendance_audit_table.setColumnCount(len(column_names))
-            self.attendance_audit_table.setHorizontalHeaderLabels(column_names)
-            
-            for row_idx, row in enumerate(results):
-                for col_idx, value in enumerate(row):
-                    item = QTableWidgetItem(str(value) if value is not None else '')
-                    item.setFlags(item.flags() & ~Qt.ItemIsEditable)
-                    
-                    # Color code by operation type
-                    if col_idx == 1:  # OperationType column
-                        if value == 'INSERT':
-                            item.setBackground(Qt.green)
-                        elif value == 'UPDATE':
-                            item.setBackground(Qt.yellow)
-                        elif value == 'DELETE':
-                            item.setBackground(Qt.red)
-                    
-                    self.attendance_audit_table.setItem(row_idx, col_idx, item)
-            
-            self.attendance_audit_table.resizeColumnsToContents()
-        except Exception as e:
-            QMessageBox.warning(self, 'Error', f'Failed to load Attendance audit log:\n{str(e)}')
+                QMessageBox.critical(self, "Demo Connection Failed", message)
     
-    def load_summary(self):
-        """Load audit summary statistics."""
+    def load_dashboard(self):
+        """Load and display dashboard widget."""
         try:
-            query = """
-                SELECT 
-                    'Marks' as Table_Name,
-                    OperationType,
-                    COUNT(*) as Operation_Count,
-                    SUM(RowsAffected) as Total_Rows_Affected,
-                    MAX(OperationTime) as Last_Operation_Time
-                FROM Marks_Audit_Log
-                GROUP BY OperationType
-                
-                UNION ALL
-                
-                SELECT 
-                    'Attendance' as Table_Name,
-                    OperationType,
-                    COUNT(*) as Operation_Count,
-                    SUM(RowsAffected) as Total_Rows_Affected,
-                    MAX(OperationTime) as Last_Operation_Time
-                FROM Attendance_Audit_Log
-                GROUP BY OperationType
-                
-                ORDER BY Table_Name, OperationType
-            """
+            connection = self.conn_manager.get_connection()
+            if not connection:
+                return
             
-            cursor = self.db_connection.get_cursor()
-            cursor.execute(query)
-            results = cursor.fetchall()
-            column_names = ['Table Name', 'Operation Type', 'Operation Count', 
-                          'Total Rows Affected', 'Last Operation Time']
+            # Get dashboard container layout
+            layout = self.dashboard_container.layout()
             
-            self.summary_table.setRowCount(len(results))
-            self.summary_table.setColumnCount(len(column_names))
-            self.summary_table.setHorizontalHeaderLabels(column_names)
+            # Remove existing dashboard if any
+            if self.dashboard_widget:
+                layout.removeWidget(self.dashboard_widget)
+                self.dashboard_widget.setParent(None)
+                self.dashboard_widget = None
             
-            for row_idx, row in enumerate(results):
-                for col_idx, value in enumerate(row):
-                    item = QTableWidgetItem(str(value) if value is not None else '')
-                    item.setFlags(item.flags() & ~Qt.ItemIsEditable)
-                    self.summary_table.setItem(row_idx, col_idx, item)
             
-            self.summary_table.resizeColumnsToContents()
         except Exception as e:
-            QMessageBox.warning(self, 'Error', f'Failed to load audit summary:\n{str(e)}')
+            print(f"Warning: Could not load dashboard: {e}")
+            import traceback
+            traceback.print_exc()
+            # Show a placeholder message instead
+            placeholder = QLabel("Dashboard currently unavailable")
+            placeholder.setAlignment(Qt.AlignCenter)
+            placeholder.setStyleSheet("""
+                padding: 24px;
+                background-color: #FEF3C7;
+                color: #92400E;
+                border-radius: 8px;
+                border: 1px solid #FCD34D;
+                font-size: 14px;
+            """)
+            self.dashboard_container.layout().addWidget(placeholder)
+    
+    def _safe_open(self, import_path, class_name, attr_name):
+        """Safely open a module window with error handling."""
+        try:
+            connection = self.conn_manager.get_connection()
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Database Connection Error",
+                f"Cannot open module: {str(e)}\n\n"
+                "Please check your database connection in Settings."
+            )
+            return
+        
+        try:
+            module = __import__(import_path, fromlist=[class_name])
+            window_class = getattr(module, class_name)
+            self.active_window = window_class(self)
+            setattr(self, attr_name, self.active_window)
+            self.active_window.show()
+        except ImportError as ie:
+            QMessageBox.critical(self, "Module Load Error",
+                               f"Cannot load module {import_path}: {ie}")
+        except Exception as e:
+            QMessageBox.critical(self, "Error",
+                               f"Could not open module: {str(e)}")
+            import traceback
+            traceback.print_exc()
+    
+    # Navigation methods
+    def open_crud_operations(self):
+        self._safe_open('crud_window', 'CRUDWindow', 'crud_window')
+    
+    def open_assignment_reservations(self):
+        self._safe_open('reservation_window', 'ReservationWindow', 'reservation_window')
+    
+    def open_marks_attendance(self):
+        self._safe_open('marks_attendance_window', 'MarksAttendanceWindow', 'marks_attendance_window')
+    
+    def open_grading_results(self):
+        self._safe_open('grading_window', 'GradingWindow', 'grading_window')
+    
+    def open_reporting(self):
+        self._safe_open('reporting_window', 'ReportingWindow', 'reporting_window')
+    
+    def open_audit(self):
+        self._safe_open('audit_window', 'AuditWindow', 'audit_window')
+    
+    def closeEvent(self, event):
+        """Handle window close event."""
+        self.conn_manager.close()
+        event.accept()
 
+
+def load_saved_config():
+    """Load saved configuration from file."""
+    config_file = Path(__file__).parent / "db_config.json"
+    
+    if config_file.exists():
+        try:
+            with open(config_file, 'r') as f:
+                config = json.load(f)
+                print(f"Loaded configuration from {config_file}:")
+                for key, value in config.items():
+                    if key == 'password':
+                        print(f"  {key}: {'***' if value else '(empty)'}")
+                    else:
+                        print(f"  {key}: {value}")
+                return config
+        except Exception as e:
+            print(f"Error loading config: {e}")
+    else:
+        print(f"No config file found at {config_file}")
+    
+    return {}
+
+
+def main():
+    app = QApplication(sys.argv)
+    app.setStyle('Fusion')
+    
+    # Initialize connection manager with stubs
+    conn_manager = DatabaseConnectionManager()
+    conn_manager.initialize_stubs()
+    
+    # Check for demo mode flag
+    use_demo = '--demo' in sys.argv or '-d' in sys.argv
+    
+    # Show connection dialog unless demo mode is forced
+    if not use_demo:
+        from connection_dialog import ConnectionDialog
+        
+        print("Opening connection dialog...")
+        dialog = ConnectionDialog()
+        result = dialog.exec_()
+        
+        if result != dialog.Accepted:
+            print("User cancelled connection dialog")
+            sys.exit(0)
+        
+        # Get settings from dialog
+        settings = dialog.get_connection_settings()
+        use_demo = settings.get('use_demo', False)
+        
+        print(f"\nConnection dialog accepted with settings:")
+        print(f"  Use Demo: {use_demo}")
+        print(f"  Host: {settings.get('host')}")
+        print(f"  Port: {settings.get('port')}")
+        print(f"  Database: {settings.get('database')}")
+        print(f"  User: {settings.get('user')}")
+    else:
+        print("Demo mode forced via command line argument")
+    
+    # Attempt initial connection
+    print(f"\nAttempting connection (use_demo={use_demo})...")
+    success, message, conn_type = conn_manager.connect(use_demo=use_demo)
+    
+    if not success:
+        print(f"Connection failed: {message}")
+        QMessageBox.critical(
+            None,
+            "Connection Failed",
+            f"Could not establish database connection:\n\n{message}\n\n"
+            "The application will now exit."
+        )
+        sys.exit(1)
+    
+    print(f"Connection successful! Type: {conn_type}")
+    
+    # Create and show main window
+    window = MainWindow(conn_manager)
+    window.show()
+    
+    sys.exit(app.exec_())
+
+
+if __name__ == '__main__':
+    main()
