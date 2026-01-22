@@ -1,510 +1,331 @@
-"""
-Audit Window Module
-Interface for viewing audit logs from Marks and Attendance tables using statement triggers.
-"""
-
-from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
-                             QPushButton, QLabel, QTableWidget, QTableWidgetItem, 
-                             QMessageBox, QGroupBox, QTabWidget, QHeaderView,
-                             QComboBox)
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QFont, QColor
-from db_connection import get_db_connection
+from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+                             QPushButton, QTableWidget, QTableWidgetItem, QLabel,
+                             QMessageBox, QComboBox, QDateEdit, QHeaderView)
+from PyQt5.QtCore import Qt, QDate
+from PyQt5.QtGui import QFont
+import db_connection
 
 
 class AuditWindow(QMainWindow):
-    """Window for viewing audit logs from Marks and Attendance tables."""
+    """Window for viewing audit logs of database operations."""
     
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._loading = False  # Flag to prevent recursion
-        
-        # Try to get connection from parent (MainWindow) if available
-        if parent and hasattr(parent, 'db_connection') and parent.db_connection is not None:
-            self.db_connection = parent.db_connection
-        else:
-            self.db_connection = get_db_connection()
-            if self.db_connection is None:
-                raise Exception("No database connection available. Please check your database setup.")
-        self.db_connection.connect()
-        
+        self.connection = db_connection.get_db_connection()
         self.init_ui()
-        self.setup_audit_tables()
-        self.setup_triggers()
-        
-        # Load data after UI is fully initialized
         self.load_audit_logs()
-    
-    def _is_demo_mode(self):
-        """Check if using demo database (SQLite)."""
-        from db_connection_demo import DemoDatabaseConnection
-        return isinstance(self.db_connection, DemoDatabaseConnection)
-    
-    def setup_audit_tables(self):
-        """Create audit tables for Marks and Attendance if they don't exist."""
-        try:
-            cursor = self.db_connection.get_cursor()
-            is_demo = self._is_demo_mode()
-            
-            if is_demo:
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS Marks_Audit_Log (
-                        LogID INTEGER PRIMARY KEY AUTOINCREMENT,
-                        OperationType VARCHAR(50) NOT NULL,
-                        OperationTime TEXT NOT NULL,
-                        Description TEXT,
-                        RowsAffected INTEGER DEFAULT 0
-                    )
-                """)
-
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS Attendance_Audit_Log (
-                        LogID INTEGER PRIMARY KEY AUTOINCREMENT,
-                        OperationType VARCHAR(50) NOT NULL,
-                        OperationTime TEXT NOT NULL,
-                        Description TEXT,
-                        RowsAffected INTEGER DEFAULT 0
-                    )
-                """)
-                self.db_connection.commit()
-            else:
-                # PostgreSQL
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS Marks_Audit_Log (
-                        LogID SERIAL PRIMARY KEY,
-                        OperationType VARCHAR(50) NOT NULL,
-                        OperationTime TIMESTAMP NOT NULL,
-                        Description TEXT,
-                        RowsAffected INTEGER DEFAULT 0
-                    )
-                """)
-
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS Attendance_Audit_Log (
-                        LogID SERIAL PRIMARY KEY,
-                        OperationType VARCHAR(50) NOT NULL,
-                        OperationTime TIMESTAMP NOT NULL,
-                        Description TEXT,
-                        RowsAffected INTEGER DEFAULT 0
-                    )
-                """)
-
-                self.db_connection.commit()
-        except Exception as e:
-            print(f"Note: Audit tables setup: {e}")
-    
-    def setup_triggers(self):
-        """Create trigger functions and triggers for Marks and Attendance tables."""
-        try:
-            is_demo = self._is_demo_mode()
-            if is_demo:
-                # Skip trigger creation for SQLite
-                return
-
-            cursor = self.db_connection.get_cursor()
-
-            # Function for Marks audit (Postgres)
-            cursor.execute("""
-                CREATE OR REPLACE FUNCTION audit_marks_changes_statement()
-                RETURNS TRIGGER 
-                LANGUAGE plpgsql AS $$
-                BEGIN
-                    INSERT INTO Marks_Audit_Log (OperationType, OperationTime, Description, RowsAffected)
-                    VALUES (
-                        TG_OP, 
-                        CURRENT_TIMESTAMP, 
-                        'A statement-level DML operation occurred on Marks table.',
-                        0
-                    );
-                    
-                    RETURN NULL;
-                END;
-                $$;
-            """)
-
-            # Function for Attendance audit
-            cursor.execute("""
-                CREATE OR REPLACE FUNCTION audit_attendance_changes_statement()
-                RETURNS TRIGGER 
-                LANGUAGE plpgsql AS $$
-                BEGIN
-                    INSERT INTO Attendance_Audit_Log (OperationType, OperationTime, Description, RowsAffected)
-                    VALUES (
-                        TG_OP, 
-                        CURRENT_TIMESTAMP, 
-                        'A statement-level DML operation occurred on Attendance table.',
-                        0
-                    );
-                    
-                    RETURN NULL;
-                END;
-                $$;
-            """)
-
-            # Drop existing triggers if they exist
-            cursor.execute("""
-                DROP TRIGGER IF EXISTS trg_audit_marks_statement ON Marks;
-            """)
-            cursor.execute("""
-                DROP TRIGGER IF EXISTS trg_audit_attendance_statement ON Attendance;
-            """)
-
-            # Create trigger for Marks table
-            cursor.execute("""
-                CREATE TRIGGER trg_audit_marks_statement 
-                AFTER INSERT OR UPDATE OR DELETE ON Marks
-                FOR EACH STATEMENT 
-                EXECUTE FUNCTION audit_marks_changes_statement();
-            """)
-
-            # Create trigger for Attendance table
-            cursor.execute("""
-                CREATE TRIGGER trg_audit_attendance_statement 
-                AFTER INSERT OR UPDATE OR DELETE ON Attendance
-                FOR EACH STATEMENT 
-                EXECUTE FUNCTION audit_attendance_changes_statement();
-            """)
-
-            self.db_connection.commit()
-        except Exception as e:
-            print(f"Note: Triggers setup: {e}")
     
     def init_ui(self):
         """Initialize the user interface."""
-        self.setWindowTitle('Audit Logs - Marks & Attendance')
-        self.setGeometry(50, 50, 1400, 900)
+        self.setWindowTitle('Audit Logs - Database Operations Tracking')
+        self.setGeometry(150, 150, 1200, 700)
         
+        # Modern styling
+        self.setStyleSheet("""
+            QMainWindow {
+                background-color: #F8F9FA;
+            }
+            QLabel {
+                color: #1A1D23;
+            }
+            QPushButton {
+                background-color: #2563EB;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                padding: 10px 20px;
+                font-size: 13px;
+                font-weight: 600;
+            }
+            QPushButton:hover {
+                background-color: #1D4ED8;
+            }
+            QPushButton:pressed {
+                background-color: #1E40AF;
+            }
+            QComboBox, QDateEdit {
+                padding: 8px;
+                border: 1px solid #E1E4E8;
+                border-radius: 6px;
+                background-color: white;
+                font-size: 13px;
+            }
+            QComboBox:focus, QDateEdit:focus {
+                border: 2px solid #2563EB;
+            }
+            QTableWidget {
+                background-color: white;
+                border: 1px solid #E1E4E8;
+                border-radius: 8px;
+                gridline-color: #E1E4E8;
+            }
+            QTableWidget::item {
+                padding: 8px;
+                border-bottom: 1px solid #F3F4F6;
+            }
+            QTableWidget::item:selected {
+                background-color: #DBEAFE;
+                color: #1E40AF;
+            }
+            QHeaderView::section {
+                background-color: #F3F4F6;
+                color: #1A1D23;
+                padding: 12px;
+                border: none;
+                border-bottom: 2px solid #E1E4E8;
+                font-weight: 600;
+                font-size: 13px;
+            }
+        """)
+        
+        # Central widget
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         
         main_layout = QVBoxLayout()
+        main_layout.setContentsMargins(24, 24, 24, 24)
+        main_layout.setSpacing(16)
         central_widget.setLayout(main_layout)
         
-        # Title
-        title = QLabel('Audit Logs - Marks & Attendance')
-        title_font = QFont()
-        title_font.setPointSize(18)
-        title_font.setBold(True)
-        title.setFont(title_font)
-        title.setAlignment(Qt.AlignCenter)
-        main_layout.addWidget(title)
+        # Header
+        header = QLabel('Audit Trail')
+        header.setFont(QFont('Segoe UI', 24, QFont.Bold))
+        header.setStyleSheet("color: #1A1D23; padding: 8px 0;")
+        main_layout.addWidget(header)
         
-        # Info label
-        info_label = QLabel('This module displays audit logs for INSERT, UPDATE, and DELETE operations on Marks and Attendance tables.')
-        info_label.setWordWrap(True)
-        info_label.setStyleSheet("padding: 10px; background-color: #e8f4f8; border-radius: 5px;")
-        main_layout.addWidget(info_label)
+        subtitle = QLabel('Track all INSERT, UPDATE, and DELETE operations on student marks and attendance')
+        subtitle.setFont(QFont('Segoe UI', 12))
+        subtitle.setStyleSheet("color: #57606A; padding-bottom: 8px;")
+        main_layout.addWidget(subtitle)
         
-        # Tab widget
-        self.tabs = QTabWidget()
-        main_layout.addWidget(self.tabs)
+        # Filter section
+        filter_widget = QWidget()
+        filter_widget.setStyleSheet("""
+            QWidget {
+                background-color: white;
+                border-radius: 8px;
+                border: 1px solid #E1E4E8;
+            }
+        """)
+        filter_layout = QHBoxLayout()
+        filter_layout.setContentsMargins(16, 16, 16, 16)
+        filter_layout.setSpacing(12)
+        filter_widget.setLayout(filter_layout)
         
-        # Marks Audit Tab
-        marks_tab = QWidget()
-        marks_layout = QVBoxLayout()
-        marks_tab.setLayout(marks_layout)
+        # Table filter
+        filter_layout.addWidget(QLabel('Table:'))
+        self.table_filter = QComboBox()
+        self.table_filter.addItems(['All Tables', 'Student Marks', 'Student Attendance'])
+        self.table_filter.currentTextChanged.connect(self.apply_filters)
+        filter_layout.addWidget(self.table_filter)
         
-        marks_filter_group = QGroupBox('Filter Marks Audit Log')
-        marks_filter_layout = QHBoxLayout()
-        marks_filter_group.setLayout(marks_filter_layout)
+        # Operation type filter
+        filter_layout.addWidget(QLabel('Operation:'))
+        self.operation_filter = QComboBox()
+        self.operation_filter.addItems(['All Operations', 'INSERT', 'UPDATE', 'DELETE'])
+        self.operation_filter.currentTextChanged.connect(self.apply_filters)
+        filter_layout.addWidget(self.operation_filter)
         
-        marks_filter_layout.addWidget(QLabel('Operation Type:'))
-        self.marks_operation_filter = QComboBox()
-        self.marks_operation_filter.addItems(['All', 'INSERT', 'UPDATE', 'DELETE'])
-        marks_filter_layout.addWidget(self.marks_operation_filter)
+        # Date filter
+        filter_layout.addWidget(QLabel('From:'))
+        self.date_from = QDateEdit()
+        self.date_from.setCalendarPopup(True)
+        self.date_from.setDate(QDate.currentDate().addDays(-30))
+        self.date_from.dateChanged.connect(self.apply_filters)
+        filter_layout.addWidget(self.date_from)
         
-        marks_filter_layout.addStretch()
+        filter_layout.addWidget(QLabel('To:'))
+        self.date_to = QDateEdit()
+        self.date_to.setCalendarPopup(True)
+        self.date_to.setDate(QDate.currentDate())
+        self.date_to.dateChanged.connect(self.apply_filters)
+        filter_layout.addWidget(self.date_to)
         
-        self.btn_refresh_marks = QPushButton('Refresh')
-        self.btn_refresh_marks.setStyleSheet("background-color: #3498db; color: white; padding: 8px;")
-        marks_filter_layout.addWidget(self.btn_refresh_marks)
+        filter_layout.addStretch()
         
-        marks_layout.addWidget(marks_filter_group)
+        # Refresh button
+        refresh_btn = QPushButton('🔄 Refresh')
+        refresh_btn.clicked.connect(self.load_audit_logs)
+        filter_layout.addWidget(refresh_btn)
         
-        marks_table_label = QLabel('Marks Audit Log')
-        marks_table_label.setFont(QFont('Arial', 12, QFont.Bold))
-        marks_layout.addWidget(marks_table_label)
+        main_layout.addWidget(filter_widget)
         
-        self.marks_audit_table = QTableWidget()
-        self.marks_audit_table.setSelectionBehavior(QTableWidget.SelectRows)
-        self.marks_audit_table.horizontalHeader().setStretchLastSection(True)
-        self.marks_audit_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-        marks_layout.addWidget(self.marks_audit_table)
+        # Audit table
+        self.audit_table = QTableWidget()
+        self.audit_table.setColumnCount(7)
+        self.audit_table.setHorizontalHeaderLabels([
+            'Audit ID', 'Table Name', 'Operation', 'Record ID', 
+            'Timestamp', 'User', 'Details'
+        ])
         
-        self.tabs.addTab(marks_tab, 'Marks Audit Log')
+        # Set column widths
+        header = self.audit_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(5, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(6, QHeaderView.Stretch)
         
-        # Attendance Audit Tab
-        attendance_tab = QWidget()
-        attendance_layout = QVBoxLayout()
-        attendance_tab.setLayout(attendance_layout)
+        self.audit_table.setAlternatingRowColors(True)
+        self.audit_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.audit_table.setEditTriggers(QTableWidget.NoEditTriggers)
         
-        attendance_filter_group = QGroupBox('Filter Attendance Audit Log')
-        attendance_filter_layout = QHBoxLayout()
-        attendance_filter_group.setLayout(attendance_filter_layout)
+        main_layout.addWidget(self.audit_table)
         
-        attendance_filter_layout.addWidget(QLabel('Operation Type:'))
-        self.attendance_operation_filter = QComboBox()
-        self.attendance_operation_filter.addItems(['All', 'INSERT', 'UPDATE', 'DELETE'])
-        attendance_filter_layout.addWidget(self.attendance_operation_filter)
+        # Statistics panel
+        stats_widget = QWidget()
+        stats_widget.setStyleSheet("""
+            QWidget {
+                background-color: white;
+                border-radius: 8px;
+                border: 1px solid #E1E4E8;
+            }
+        """)
+        stats_layout = QHBoxLayout()
+        stats_layout.setContentsMargins(16, 12, 16, 12)
+        stats_widget.setLayout(stats_layout)
         
-        attendance_filter_layout.addStretch()
+        self.stats_label = QLabel('Total Records: 0')
+        self.stats_label.setFont(QFont('Segoe UI', 11))
+        self.stats_label.setStyleSheet("color: #57606A;")
+        stats_layout.addWidget(self.stats_label)
         
-        self.btn_refresh_attendance = QPushButton('Refresh')
-        self.btn_refresh_attendance.setStyleSheet("background-color: #3498db; color: white; padding: 8px;")
-        attendance_filter_layout.addWidget(self.btn_refresh_attendance)
+        stats_layout.addStretch()
         
-        attendance_layout.addWidget(attendance_filter_group)
-        
-        attendance_table_label = QLabel('Attendance Audit Log')
-        attendance_table_label.setFont(QFont('Arial', 12, QFont.Bold))
-        attendance_layout.addWidget(attendance_table_label)
-        
-        self.attendance_audit_table = QTableWidget()
-        self.attendance_audit_table.setSelectionBehavior(QTableWidget.SelectRows)
-        self.attendance_audit_table.horizontalHeader().setStretchLastSection(True)
-        self.attendance_audit_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-        attendance_layout.addWidget(self.attendance_audit_table)
-        
-        self.tabs.addTab(attendance_tab, 'Attendance Audit Log')
-        
-        # Summary Tab
-        summary_tab = QWidget()
-        summary_layout = QVBoxLayout()
-        summary_tab.setLayout(summary_layout)
-        
-        summary_label = QLabel('Audit Summary')
-        summary_label.setFont(QFont('Arial', 12, QFont.Bold))
-        summary_layout.addWidget(summary_label)
-        
-        self.summary_table = QTableWidget()
-        self.summary_table.setSelectionBehavior(QTableWidget.SelectRows)
-        self.summary_table.horizontalHeader().setStretchLastSection(True)
-        self.summary_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-        summary_layout.addWidget(self.summary_table)
-        
-        btn_refresh_summary = QPushButton('Refresh Summary')
-        btn_refresh_summary.clicked.connect(self.load_summary)
-        btn_refresh_summary.setStyleSheet("background-color: #27ae60; color: white; padding: 8px;")
-        summary_layout.addWidget(btn_refresh_summary)
-        
-        self.tabs.addTab(summary_tab, 'Summary')
-        
-        # Connect signals AFTER all UI is created
-        self.marks_operation_filter.currentTextChanged.connect(self.on_marks_filter_changed)
-        self.attendance_operation_filter.currentTextChanged.connect(self.on_attendance_filter_changed)
-        self.btn_refresh_marks.clicked.connect(self.on_marks_refresh_clicked)
-        self.btn_refresh_attendance.clicked.connect(self.on_attendance_refresh_clicked)
-    
-    def on_marks_filter_changed(self, text):
-        """Handle marks filter change."""
-        if not self._loading:
-            self.load_marks_audit()
-    
-    def on_attendance_filter_changed(self, text):
-        """Handle attendance filter change."""
-        if not self._loading:
-            self.load_attendance_audit()
-    
-    def on_marks_refresh_clicked(self):
-        """Handle marks refresh button click."""
-        if not self._loading:
-            self.load_marks_audit()
-    
-    def on_attendance_refresh_clicked(self):
-        """Handle attendance refresh button click."""
-        if not self._loading:
-            self.load_attendance_audit()
+        main_layout.addWidget(stats_widget)
     
     def load_audit_logs(self):
-        """Load all audit logs."""
-        self.load_marks_audit()
-        self.load_attendance_audit()
-        self.load_summary()
-    
-    def load_marks_audit(self):
-        """Load Marks audit log."""
-        if self._loading:
-            return
-            
-        self._loading = True
+        """Load audit logs from database."""
+        cursor = None
         try:
-            operation_filter = self.marks_operation_filter.currentText()
-            cursor = self.db_connection.get_cursor()
-            is_demo = self._is_demo_mode()
+            # Rollback any pending transaction first
+            try:
+                self.connection.rollback()
+            except:
+                pass
             
-            # Build query based on filter
-            if operation_filter == 'All':
-                query = """
-                    SELECT LogID, OperationType, OperationTime, Description, RowsAffected
-                    FROM Marks_Audit_Log
-                    ORDER BY OperationTime DESC
-                """
-                cursor.execute(query)
-            else:
-                if is_demo:
-                    query = """
-                        SELECT LogID, OperationType, OperationTime, Description, RowsAffected
-                        FROM Marks_Audit_Log
-                        WHERE OperationType = ?
-                        ORDER BY OperationTime DESC
-                    """
-                else:
-                    query = """
-                        SELECT LogID, OperationType, OperationTime, Description, RowsAffected
-                        FROM Marks_Audit_Log
-                        WHERE OperationType = %s
-                        ORDER BY OperationTime DESC
-                    """
-                cursor.execute(query, (operation_filter,))
+            cursor = self.connection.cursor()
             
-            results = cursor.fetchall()
-            column_names = ['Log ID', 'Operation Type', 'Operation Time', 'Description', 'Rows Affected']
-            
-            self.marks_audit_table.setRowCount(len(results))
-            self.marks_audit_table.setColumnCount(len(column_names))
-            self.marks_audit_table.setHorizontalHeaderLabels(column_names)
-            
-            for row_idx, row in enumerate(results):
-                for col_idx, value in enumerate(row):
-                    item = QTableWidgetItem(str(value) if value is not None else '')
-                    item.setFlags(item.flags() & ~Qt.ItemIsEditable)
-                    
-                    # Color code by operation type
-                    if col_idx == 1:  # OperationType column
-                        if value == 'INSERT':
-                            item.setBackground(QColor(144, 238, 144))  # Light green
-                        elif value == 'UPDATE':
-                            item.setBackground(QColor(255, 255, 153))  # Light yellow
-                        elif value == 'DELETE':
-                            item.setBackground(QColor(255, 182, 193))  # Light red
-                    
-                    self.marks_audit_table.setItem(row_idx, col_idx, item)
-            
-            self.marks_audit_table.resizeColumnsToContents()
-            
-        except Exception as e:
-            QMessageBox.warning(self, 'Error', f'Failed to load Marks audit log:\n{str(e)}')
-        finally:
-            self._loading = False
-    
-    def load_attendance_audit(self):
-        """Load Attendance audit log."""
-        if self._loading:
-            return
-            
-        self._loading = True
-        try:
-            operation_filter = self.attendance_operation_filter.currentText()
-            cursor = self.db_connection.get_cursor()
-            is_demo = self._is_demo_mode()
-            
-            # Build query based on filter
-            if operation_filter == 'All':
-                query = """
-                    SELECT LogID, OperationType, OperationTime, Description, RowsAffected
-                    FROM Attendance_Audit_Log
-                    ORDER BY OperationTime DESC
-                """
-                cursor.execute(query)
-            else:
-                if is_demo:
-                    query = """
-                        SELECT LogID, OperationType, OperationTime, Description, RowsAffected
-                        FROM Attendance_Audit_Log
-                        WHERE OperationType = ?
-                        ORDER BY OperationTime DESC
-                    """
-                else:
-                    query = """
-                        SELECT LogID, OperationType, OperationTime, Description, RowsAffected
-                        FROM Attendance_Audit_Log
-                        WHERE OperationType = %s
-                        ORDER BY OperationTime DESC
-                    """
-                cursor.execute(query, (operation_filter,))
-            
-            results = cursor.fetchall()
-            column_names = ['Log ID', 'Operation Type', 'Operation Time', 'Description', 'Rows Affected']
-            
-            self.attendance_audit_table.setRowCount(len(results))
-            self.attendance_audit_table.setColumnCount(len(column_names))
-            self.attendance_audit_table.setHorizontalHeaderLabels(column_names)
-            
-            for row_idx, row in enumerate(results):
-                for col_idx, value in enumerate(row):
-                    item = QTableWidgetItem(str(value) if value is not None else '')
-                    item.setFlags(item.flags() & ~Qt.ItemIsEditable)
-                    
-                    # Color code by operation type
-                    if col_idx == 1:  # OperationType column
-                        if value == 'INSERT':
-                            item.setBackground(QColor(144, 238, 144))  # Light green
-                        elif value == 'UPDATE':
-                            item.setBackground(QColor(255, 255, 153))  # Light yellow
-                        elif value == 'DELETE':
-                            item.setBackground(QColor(255, 182, 193))  # Light red
-                    
-                    self.attendance_audit_table.setItem(row_idx, col_idx, item)
-            
-            self.attendance_audit_table.resizeColumnsToContents()
-            
-        except Exception as e:
-            QMessageBox.warning(self, 'Error', f'Failed to load Attendance audit log:\n{str(e)}')
-        finally:
-            self._loading = False
-    
-    def load_summary(self):
-        """Load audit summary statistics."""
-        if self._loading:
-            return
-            
-        self._loading = True
-        try:
-            cursor = self.db_connection.get_cursor()
-            is_demo = self._is_demo_mode()
-            
+            # Query to get audit logs
             query = """
                 SELECT 
-                    'Marks' as Table_Name,
-                    OperationType,
-                    COUNT(*) as Operation_Count,
-                    SUM(RowsAffected) as Total_Rows_Affected,
-                    MAX(OperationTime) as Last_Operation_Time
-                FROM Marks_Audit_Log
-                GROUP BY OperationType
-                
-                UNION ALL
-                
-                SELECT 
-                    'Attendance' as Table_Name,
-                    OperationType,
-                    COUNT(*) as Operation_Count,
-                    SUM(RowsAffected) as Total_Rows_Affected,
-                    MAX(OperationTime) as Last_Operation_Time
-                FROM Attendance_Audit_Log
-                GROUP BY OperationType
-                
-                ORDER BY Table_Name, OperationType
+                    audit_id,
+                    table_name,
+                    operation_type,
+                    record_id,
+                    operation_time,
+                    COALESCE(user_name, 'System') as user_name,
+                    COALESCE(details, '') as details
+                FROM audit_log
+                ORDER BY operation_time DESC
+                LIMIT 1000
             """
             
             cursor.execute(query)
-            results = cursor.fetchall()
-            column_names = ['Table Name', 'Operation Type', 'Operation Count', 
-                          'Total Rows Affected', 'Last Operation Time']
+            rows = cursor.fetchall()
             
-            self.summary_table.setRowCount(len(results))
-            self.summary_table.setColumnCount(len(column_names))
-            self.summary_table.setHorizontalHeaderLabels(column_names)
+            # Commit the transaction
+            self.connection.commit()
             
-            for row_idx, row in enumerate(results):
-                for col_idx, value in enumerate(row):
-                    item = QTableWidgetItem(str(value) if value is not None else '')
-                    item.setFlags(item.flags() & ~Qt.ItemIsEditable)
-                    self.summary_table.setItem(row_idx, col_idx, item)
+            # Store all rows for filtering
+            self.all_audit_data = rows
             
-            self.summary_table.resizeColumnsToContents()
+            # Display the data
+            self.display_audit_data(rows)
             
         except Exception as e:
-            QMessageBox.warning(self, 'Error', f'Failed to load audit summary:\n{str(e)}')
+            # Rollback on error
+            try:
+                self.connection.rollback()
+            except:
+                pass
+            
+            QMessageBox.critical(self, 'Error', f'Failed to load audit logs:\n{str(e)}')
+            import traceback
+            traceback.print_exc()
+        
         finally:
-            self._loading = False
+            if cursor:
+                try:
+                    cursor.close()
+                except:
+                    pass
+    
+    def display_audit_data(self, rows):
+        """Display audit data in the table."""
+        self.audit_table.setRowCount(len(rows))
+        
+        for i, row in enumerate(rows):
+            # Audit ID
+            self.audit_table.setItem(i, 0, QTableWidgetItem(str(row[0])))
+            
+            # Table Name
+            table_item = QTableWidgetItem(row[1])
+            self.audit_table.setItem(i, 1, table_item)
+            
+            # Operation Type with color coding
+            operation_item = QTableWidgetItem(row[2])
+            if row[2] == 'INSERT':
+                operation_item.setForeground(Qt.darkGreen)
+            elif row[2] == 'UPDATE':
+                operation_item.setForeground(Qt.darkBlue)
+            elif row[2] == 'DELETE':
+                operation_item.setForeground(Qt.darkRed)
+            self.audit_table.setItem(i, 2, operation_item)
+            
+            # Record ID
+            self.audit_table.setItem(i, 3, QTableWidgetItem(str(row[3]) if row[3] else 'N/A'))
+            
+            # Timestamp
+            timestamp = row[4].strftime('%Y-%m-%d %H:%M:%S') if hasattr(row[4], 'strftime') else str(row[4])
+            self.audit_table.setItem(i, 4, QTableWidgetItem(timestamp))
+            
+            # User
+            self.audit_table.setItem(i, 5, QTableWidgetItem(row[5]))
+            
+            # Details
+            self.audit_table.setItem(i, 6, QTableWidgetItem(row[6]))
+        
+        # Update statistics
+        self.stats_label.setText(f'Total Records: {len(rows)}')
+    
+    def apply_filters(self):
+        """Apply filters to the audit data."""
+        if not hasattr(self, 'all_audit_data'):
+            return
+        
+        filtered_data = []
+        
+        table_filter = self.table_filter.currentText()
+        operation_filter = self.operation_filter.currentText()
+        date_from = self.date_from.date().toPyDate()
+        date_to = self.date_to.date().toPyDate()
+        
+        for row in self.all_audit_data:
+            # Filter by table
+            if table_filter != 'All Tables':
+                table_map = {
+                    'Student Marks': 'student_mark',
+                    'Student Attendance': 'student_attendance'
+                }
+                if row[1] != table_map.get(table_filter, row[1]):
+                    continue
+            
+            # Filter by operation
+            if operation_filter != 'All Operations' and row[2] != operation_filter:
+                continue
+            
+            # Filter by date
+            operation_date = row[4].date() if hasattr(row[4], 'date') else row[4]
+            if operation_date < date_from or operation_date > date_to:
+                continue
+            
+            filtered_data.append(row)
+        
+        self.display_audit_data(filtered_data)
+    
+    def closeEvent(self, event):
+        """Handle window close event."""
+        event.accept()
