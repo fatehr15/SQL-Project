@@ -1,5 +1,5 @@
 """
-Audit Window
+Reporting Window
 Interface for viewing audit logs from Marks and Attendance tables using statement triggers.
 """
 
@@ -13,11 +13,13 @@ from db_connection import get_db_connection
 import os
 
 
-class AuditWindow(QMainWindow):
+class ReportingWindow(QMainWindow):
     """Window for viewing audit logs from Marks and Attendance tables."""
     
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._loading = False  # Flag to prevent recursion
+        
         # Try to get connection from parent (MainWindow) if available
         if parent and hasattr(parent, 'db_connection') and parent.db_connection is not None:
             self.db_connection = parent.db_connection
@@ -26,9 +28,12 @@ class AuditWindow(QMainWindow):
             if self.db_connection is None:
                 raise Exception("No database connection available. Please check your database setup.")
         self.db_connection.connect()
+        
         self.init_ui()
         self.setup_audit_tables()
         self.setup_triggers()
+        
+        # Load data after UI is fully initialized
         self.load_audit_logs()
     
     def _is_demo_mode(self):
@@ -207,13 +212,12 @@ class AuditWindow(QMainWindow):
         marks_filter_layout.addWidget(QLabel('Operation Type:'))
         self.marks_operation_filter = QComboBox()
         self.marks_operation_filter.addItems(['All', 'INSERT', 'UPDATE', 'DELETE'])
-        self.marks_operation_filter.currentIndexChanged.connect(self.load_marks_audit)
+        # Connect after setting up to avoid initial trigger
         marks_filter_layout.addWidget(self.marks_operation_filter)
         
         marks_filter_layout.addStretch()
         
         self.btn_refresh_marks = QPushButton('Refresh')
-        self.btn_refresh_marks.clicked.connect(self.load_marks_audit)
         self.btn_refresh_marks.setStyleSheet("background-color: #3498db; color: white; padding: 8px;")
         marks_filter_layout.addWidget(self.btn_refresh_marks)
         
@@ -243,13 +247,12 @@ class AuditWindow(QMainWindow):
         attendance_filter_layout.addWidget(QLabel('Operation Type:'))
         self.attendance_operation_filter = QComboBox()
         self.attendance_operation_filter.addItems(['All', 'INSERT', 'UPDATE', 'DELETE'])
-        self.attendance_operation_filter.currentIndexChanged.connect(self.load_attendance_audit)
+        # Connect after setting up to avoid initial trigger
         attendance_filter_layout.addWidget(self.attendance_operation_filter)
         
         attendance_filter_layout.addStretch()
         
         self.btn_refresh_attendance = QPushButton('Refresh')
-        self.btn_refresh_attendance.clicked.connect(self.load_attendance_audit)
         self.btn_refresh_attendance.setStyleSheet("background-color: #3498db; color: white; padding: 8px;")
         attendance_filter_layout.addWidget(self.btn_refresh_attendance)
         
@@ -288,6 +291,32 @@ class AuditWindow(QMainWindow):
         summary_layout.addWidget(btn_refresh_summary)
         
         self.tabs.addTab(summary_tab, 'Summary')
+        
+        # Connect signals AFTER all UI is created
+        self.marks_operation_filter.currentTextChanged.connect(self.on_marks_filter_changed)
+        self.attendance_operation_filter.currentTextChanged.connect(self.on_attendance_filter_changed)
+        self.btn_refresh_marks.clicked.connect(self.on_marks_refresh_clicked)
+        self.btn_refresh_attendance.clicked.connect(self.on_attendance_refresh_clicked)
+    
+    def on_marks_filter_changed(self, text):
+        """Handle marks filter change."""
+        if not self._loading:
+            self.load_marks_audit()
+    
+    def on_attendance_filter_changed(self, text):
+        """Handle attendance filter change."""
+        if not self._loading:
+            self.load_attendance_audit()
+    
+    def on_marks_refresh_clicked(self):
+        """Handle marks refresh button click."""
+        if not self._loading:
+            self.load_marks_audit()
+    
+    def on_attendance_refresh_clicked(self):
+        """Handle attendance refresh button click."""
+        if not self._loading:
+            self.load_attendance_audit()
     
     def load_audit_logs(self):
         """Load all audit logs."""
@@ -297,6 +326,10 @@ class AuditWindow(QMainWindow):
     
     def load_marks_audit(self):
         """Load Marks audit log."""
+        if self._loading:
+            return
+            
+        self._loading = True
         try:
             operation_filter = self.marks_operation_filter.currentText()
             cursor = self.db_connection.get_cursor()
@@ -312,7 +345,6 @@ class AuditWindow(QMainWindow):
                 cursor.execute(query)
             else:
                 if is_demo:
-                    # SQLite uses ? placeholder
                     query = """
                         SELECT LogID, OperationType, OperationTime, Description, RowsAffected
                         FROM Marks_Audit_Log
@@ -320,7 +352,6 @@ class AuditWindow(QMainWindow):
                         ORDER BY OperationTime DESC
                     """
                 else:
-                    # PostgreSQL uses %s placeholder
                     query = """
                         SELECT LogID, OperationType, OperationTime, Description, RowsAffected
                         FROM Marks_Audit_Log
@@ -354,14 +385,17 @@ class AuditWindow(QMainWindow):
             
             self.marks_audit_table.resizeColumnsToContents()
             
-            if len(results) == 0:
-                QMessageBox.information(self, 'Info', 
-                    'No audit records found. Audit logs will be created when marks are modified.')
         except Exception as e:
             QMessageBox.warning(self, 'Error', f'Failed to load Marks audit log:\n{str(e)}')
+        finally:
+            self._loading = False
     
     def load_attendance_audit(self):
         """Load Attendance audit log."""
+        if self._loading:
+            return
+            
+        self._loading = True
         try:
             operation_filter = self.attendance_operation_filter.currentText()
             cursor = self.db_connection.get_cursor()
@@ -377,7 +411,6 @@ class AuditWindow(QMainWindow):
                 cursor.execute(query)
             else:
                 if is_demo:
-                    # SQLite uses ? placeholder
                     query = """
                         SELECT LogID, OperationType, OperationTime, Description, RowsAffected
                         FROM Attendance_Audit_Log
@@ -385,7 +418,6 @@ class AuditWindow(QMainWindow):
                         ORDER BY OperationTime DESC
                     """
                 else:
-                    # PostgreSQL uses %s placeholder
                     query = """
                         SELECT LogID, OperationType, OperationTime, Description, RowsAffected
                         FROM Attendance_Audit_Log
@@ -419,14 +451,17 @@ class AuditWindow(QMainWindow):
             
             self.attendance_audit_table.resizeColumnsToContents()
             
-            if len(results) == 0:
-                QMessageBox.information(self, 'Info', 
-                    'No audit records found. Audit logs will be created when attendance is modified.')
         except Exception as e:
             QMessageBox.warning(self, 'Error', f'Failed to load Attendance audit log:\n{str(e)}')
+        finally:
+            self._loading = False
     
     def load_summary(self):
         """Load audit summary statistics."""
+        if self._loading:
+            return
+            
+        self._loading = True
         try:
             cursor = self.db_connection.get_cursor()
             is_demo = self._is_demo_mode()
@@ -472,8 +507,11 @@ class AuditWindow(QMainWindow):
             
             self.summary_table.resizeColumnsToContents()
             
-            if len(results) == 0:
-                QMessageBox.information(self, 'Info', 
-                    'No audit summary available. Audit logs will be created when data is modified.')
         except Exception as e:
             QMessageBox.warning(self, 'Error', f'Failed to load audit summary:\n{str(e)}')
+        finally:
+            self._loading = False
+
+
+# Backward compatibility alias
+AuditWindow = ReportingWindow
