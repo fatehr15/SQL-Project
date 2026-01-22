@@ -1,479 +1,533 @@
-"""
-Audit Window
-Interface for viewing audit logs from Marks and Attendance tables using statement triggers.
-"""
-
-from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
-                             QPushButton, QLabel, QTableWidget, QTableWidgetItem, 
-                             QMessageBox, QGroupBox, QTabWidget, QHeaderView,
-                             QComboBox, QDateEdit, QDateTimeEdit)
-from PyQt5.QtCore import Qt, QDate, QDateTime
-from PyQt5.QtGui import QFont, QColor
-from db_connection import get_db_connection
-import os
+from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+                             QPushButton, QTableWidget, QTableWidgetItem, QLabel,
+                             QMessageBox, QComboBox, QHeaderView, QTextEdit,
+                             QSplitter, QGroupBox)
+from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QFont
+import db_connection
 
 
-class AuditWindow(QMainWindow):
-    """Window for viewing audit logs from Marks and Attendance tables."""
+class ReportingWindow(QMainWindow):
+    """Window for SQL reporting and predefined queries."""
     
     def __init__(self, parent=None):
         super().__init__(parent)
-        # Try to get connection from parent (MainWindow) if available
-        if parent and hasattr(parent, 'db_connection') and parent.db_connection is not None:
-            self.db_connection = parent.db_connection
-        else:
-            self.db_connection = get_db_connection()
-            if self.db_connection is None:
-                raise Exception("No database connection available. Please check your database setup.")
-        self.db_connection.connect()
+        self.connection = db_connection.get_db_connection()
         self.init_ui()
-        self.setup_audit_tables()
-        self.setup_triggers()
-        self.load_audit_logs()
-    
-    def _is_demo_mode(self):
-        """Check if using demo database (SQLite)."""
-        from db_connection_demo import DemoDatabaseConnection
-        return isinstance(self.db_connection, DemoDatabaseConnection)
-    
-    def setup_audit_tables(self):
-        """Create audit tables for Marks and Attendance if they don't exist."""
-        try:
-            cursor = self.db_connection.get_cursor()
-            is_demo = self._is_demo_mode()
-            
-            if is_demo:
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS Marks_Audit_Log (
-                        LogID INTEGER PRIMARY KEY AUTOINCREMENT,
-                        OperationType VARCHAR(50) NOT NULL,
-                        OperationTime TEXT NOT NULL,
-                        Description TEXT,
-                        RowsAffected INTEGER DEFAULT 0
-                    )
-                """)
-
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS Attendance_Audit_Log (
-                        LogID INTEGER PRIMARY KEY AUTOINCREMENT,
-                        OperationType VARCHAR(50) NOT NULL,
-                        OperationTime TEXT NOT NULL,
-                        Description TEXT,
-                        RowsAffected INTEGER DEFAULT 0
-                    )
-                """)
-                self.db_connection.commit()
-            else:
-                # PostgreSQL
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS Marks_Audit_Log (
-                        LogID SERIAL PRIMARY KEY,
-                        OperationType VARCHAR(50) NOT NULL,
-                        OperationTime TIMESTAMP NOT NULL,
-                        Description TEXT,
-                        RowsAffected INTEGER DEFAULT 0
-                    )
-                """)
-
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS Attendance_Audit_Log (
-                        LogID SERIAL PRIMARY KEY,
-                        OperationType VARCHAR(50) NOT NULL,
-                        OperationTime TIMESTAMP NOT NULL,
-                        Description TEXT,
-                        RowsAffected INTEGER DEFAULT 0
-                    )
-                """)
-
-                self.db_connection.commit()
-        except Exception as e:
-            print(f"Note: Audit tables setup: {e}")
-    
-    def setup_triggers(self):
-        """Create trigger functions and triggers for Marks and Attendance tables."""
-        try:
-            is_demo = self._is_demo_mode()
-            if is_demo:
-                # Skip trigger creation for SQLite
-                return
-
-            cursor = self.db_connection.get_cursor()
-
-            # Function for Marks audit (Postgres)
-            cursor.execute("""
-                CREATE OR REPLACE FUNCTION audit_marks_changes_statement()
-                RETURNS TRIGGER 
-                LANGUAGE plpgsql AS $$
-                BEGIN
-                    INSERT INTO Marks_Audit_Log (OperationType, OperationTime, Description, RowsAffected)
-                    VALUES (
-                        TG_OP, 
-                        CURRENT_TIMESTAMP, 
-                        'A statement-level DML operation occurred on Marks table.',
-                        0
-                    );
-                    
-                    RETURN NULL;
-                END;
-                $$;
-            """)
-
-            # Function for Attendance audit
-            cursor.execute("""
-                CREATE OR REPLACE FUNCTION audit_attendance_changes_statement()
-                RETURNS TRIGGER 
-                LANGUAGE plpgsql AS $$
-                BEGIN
-                    INSERT INTO Attendance_Audit_Log (OperationType, OperationTime, Description, RowsAffected)
-                    VALUES (
-                        TG_OP, 
-                        CURRENT_TIMESTAMP, 
-                        'A statement-level DML operation occurred on Attendance table.',
-                        0
-                    );
-                    
-                    RETURN NULL;
-                END;
-                $$;
-            """)
-
-            # Drop existing triggers if they exist
-            cursor.execute("""
-                DROP TRIGGER IF EXISTS trg_audit_marks_statement ON Marks;
-            """)
-            cursor.execute("""
-                DROP TRIGGER IF EXISTS trg_audit_attendance_statement ON Attendance;
-            """)
-
-            # Create trigger for Marks table
-            cursor.execute("""
-                CREATE TRIGGER trg_audit_marks_statement 
-                AFTER INSERT OR UPDATE OR DELETE ON Marks
-                FOR EACH STATEMENT 
-                EXECUTE FUNCTION audit_marks_changes_statement();
-            """)
-
-            # Create trigger for Attendance table
-            cursor.execute("""
-                CREATE TRIGGER trg_audit_attendance_statement 
-                AFTER INSERT OR UPDATE OR DELETE ON Attendance
-                FOR EACH STATEMENT 
-                EXECUTE FUNCTION audit_attendance_changes_statement();
-            """)
-
-            self.db_connection.commit()
-        except Exception as e:
-            print(f"Note: Triggers setup: {e}")
     
     def init_ui(self):
         """Initialize the user interface."""
-        self.setWindowTitle('Audit Logs - Marks & Attendance')
-        self.setGeometry(50, 50, 1400, 900)
+        self.setWindowTitle('SQL Reporting - Query Results')
+        self.setGeometry(100, 100, 1400, 800)
         
+        # Modern styling
+        self.setStyleSheet("""
+            QMainWindow {
+                background-color: #F8F9FA;
+            }
+            QLabel {
+                color: #1A1D23;
+            }
+            QPushButton {
+                background-color: #2563EB;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                padding: 10px 20px;
+                font-size: 13px;
+                font-weight: 600;
+            }
+            QPushButton:hover {
+                background-color: #1D4ED8;
+            }
+            QPushButton:pressed {
+                background-color: #1E40AF;
+            }
+            QPushButton#exportBtn {
+                background-color: #059669;
+            }
+            QPushButton#exportBtn:hover {
+                background-color: #047857;
+            }
+            QComboBox {
+                padding: 8px;
+                border: 1px solid #E1E4E8;
+                border-radius: 6px;
+                background-color: white;
+                font-size: 13px;
+                min-width: 300px;
+            }
+            QComboBox:focus {
+                border: 2px solid #2563EB;
+            }
+            QTableWidget {
+                background-color: white;
+                border: 1px solid #E1E4E8;
+                border-radius: 8px;
+                gridline-color: #E1E4E8;
+            }
+            QTableWidget::item {
+                padding: 8px;
+                border-bottom: 1px solid #F3F4F6;
+            }
+            QTableWidget::item:selected {
+                background-color: #DBEAFE;
+                color: #1E40AF;
+            }
+            QHeaderView::section {
+                background-color: #F3F4F6;
+                color: #1A1D23;
+                padding: 12px;
+                border: none;
+                border-bottom: 2px solid #E1E4E8;
+                font-weight: 600;
+                font-size: 13px;
+            }
+            QTextEdit {
+                background-color: #F8F9FA;
+                border: 1px solid #E1E4E8;
+                border-radius: 6px;
+                padding: 12px;
+                font-family: 'Consolas', 'Courier New', monospace;
+                font-size: 12px;
+                color: #1A1D23;
+            }
+            QGroupBox {
+                background-color: white;
+                border: 1px solid #E1E4E8;
+                border-radius: 8px;
+                margin-top: 12px;
+                padding-top: 12px;
+                font-weight: 600;
+            }
+            QGroupBox::title {
+                color: #1A1D23;
+                subcontrol-origin: margin;
+                left: 12px;
+                padding: 0 8px;
+            }
+        """)
+        
+        # Central widget
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         
         main_layout = QVBoxLayout()
+        main_layout.setContentsMargins(24, 24, 24, 24)
+        main_layout.setSpacing(16)
         central_widget.setLayout(main_layout)
         
-        # Title
-        title = QLabel('Audit Logs - Marks & Attendance')
-        title_font = QFont()
-        title_font.setPointSize(18)
-        title_font.setBold(True)
-        title.setFont(title_font)
-        title.setAlignment(Qt.AlignCenter)
-        main_layout.addWidget(title)
+        # Header
+        header = QLabel('SQL Reporting')
+        header.setFont(QFont('Segoe UI', 24, QFont.Bold))
+        header.setStyleSheet("color: #1A1D23; padding: 8px 0;")
+        main_layout.addWidget(header)
         
-        # Info label
-        info_label = QLabel('This module displays audit logs for INSERT, UPDATE, and DELETE operations on Marks and Attendance tables.')
-        info_label.setWordWrap(True)
-        info_label.setStyleSheet("padding: 10px; background-color: #e8f4f8; border-radius: 5px;")
-        main_layout.addWidget(info_label)
+        subtitle = QLabel('Execute predefined queries and view comprehensive reports')
+        subtitle.setFont(QFont('Segoe UI', 12))
+        subtitle.setStyleSheet("color: #57606A; padding-bottom: 8px;")
+        main_layout.addWidget(subtitle)
         
-        # Tab widget
-        self.tabs = QTabWidget()
-        main_layout.addWidget(self.tabs)
+        # Query selection section
+        query_section = QGroupBox('Select Report')
+        query_layout = QHBoxLayout()
+        query_layout.setContentsMargins(16, 16, 16, 16)
+        query_section.setLayout(query_layout)
         
-        # Marks Audit Tab
-        marks_tab = QWidget()
-        marks_layout = QVBoxLayout()
-        marks_tab.setLayout(marks_layout)
+        query_layout.addWidget(QLabel('Report Type:'))
         
-        marks_filter_group = QGroupBox('Filter Marks Audit Log')
-        marks_filter_layout = QHBoxLayout()
-        marks_filter_group.setLayout(marks_filter_layout)
+        self.query_combo = QComboBox()
+        self.query_combo.addItems([
+            '(a) List of students by group',
+            '(b) List of students by section',
+            '(c) Instructor timetables',
+            '(d) Student timetables (by section and group)',
+            '(e) Students who passed the semester',
+            '(f) Disqualifying marks by module',
+            '(g) Average marks by course and group',
+            '(h) Students with failing grades in a module',
+            '(i) Students eligible for resit',
+            '(j) Students excluded from module'
+        ])
+        query_layout.addWidget(self.query_combo)
         
-        marks_filter_layout.addWidget(QLabel('Operation Type:'))
-        self.marks_operation_filter = QComboBox()
-        self.marks_operation_filter.addItems(['All', 'INSERT', 'UPDATE', 'DELETE'])
-        self.marks_operation_filter.currentIndexChanged.connect(self.load_marks_audit)
-        marks_filter_layout.addWidget(self.marks_operation_filter)
+        execute_btn = QPushButton('▶ Execute Query')
+        execute_btn.clicked.connect(self.execute_query)
+        query_layout.addWidget(execute_btn)
         
-        marks_filter_layout.addStretch()
+        query_layout.addStretch()
         
-        self.btn_refresh_marks = QPushButton('Refresh')
-        self.btn_refresh_marks.clicked.connect(self.load_marks_audit)
-        self.btn_refresh_marks.setStyleSheet("background-color: #3498db; color: white; padding: 8px;")
-        marks_filter_layout.addWidget(self.btn_refresh_marks)
+        main_layout.addWidget(query_section)
         
-        marks_layout.addWidget(marks_filter_group)
+        # Splitter for SQL and Results
+        splitter = QSplitter(Qt.Vertical)
         
-        marks_table_label = QLabel('Marks Audit Log')
-        marks_table_label.setFont(QFont('Arial', 12, QFont.Bold))
-        marks_layout.addWidget(marks_table_label)
+        # SQL Display section
+        sql_group = QGroupBox('SQL Query')
+        sql_layout = QVBoxLayout()
+        sql_layout.setContentsMargins(12, 12, 12, 12)
+        sql_group.setLayout(sql_layout)
         
-        self.marks_audit_table = QTableWidget()
-        self.marks_audit_table.setSelectionBehavior(QTableWidget.SelectRows)
-        self.marks_audit_table.horizontalHeader().setStretchLastSection(True)
-        self.marks_audit_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-        marks_layout.addWidget(self.marks_audit_table)
+        self.sql_display = QTextEdit()
+        self.sql_display.setReadOnly(True)
+        self.sql_display.setMaximumHeight(150)
+        sql_layout.addWidget(self.sql_display)
         
-        self.tabs.addTab(marks_tab, 'Marks Audit Log')
+        splitter.addWidget(sql_group)
         
-        # Attendance Audit Tab
-        attendance_tab = QWidget()
-        attendance_layout = QVBoxLayout()
-        attendance_tab.setLayout(attendance_layout)
+        # Results section
+        results_group = QGroupBox('Query Results')
+        results_layout = QVBoxLayout()
+        results_layout.setContentsMargins(12, 12, 12, 12)
+        results_group.setLayout(results_layout)
         
-        attendance_filter_group = QGroupBox('Filter Attendance Audit Log')
-        attendance_filter_layout = QHBoxLayout()
-        attendance_filter_group.setLayout(attendance_filter_layout)
+        self.results_table = QTableWidget()
+        self.results_table.setAlternatingRowColors(True)
+        self.results_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.results_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        results_layout.addWidget(self.results_table)
         
-        attendance_filter_layout.addWidget(QLabel('Operation Type:'))
-        self.attendance_operation_filter = QComboBox()
-        self.attendance_operation_filter.addItems(['All', 'INSERT', 'UPDATE', 'DELETE'])
-        self.attendance_operation_filter.currentIndexChanged.connect(self.load_attendance_audit)
-        attendance_filter_layout.addWidget(self.attendance_operation_filter)
+        splitter.addWidget(results_group)
         
-        attendance_filter_layout.addStretch()
+        # Set splitter sizes
+        splitter.setSizes([150, 450])
         
-        self.btn_refresh_attendance = QPushButton('Refresh')
-        self.btn_refresh_attendance.clicked.connect(self.load_attendance_audit)
-        self.btn_refresh_attendance.setStyleSheet("background-color: #3498db; color: white; padding: 8px;")
-        attendance_filter_layout.addWidget(self.btn_refresh_attendance)
+        main_layout.addWidget(splitter)
         
-        attendance_layout.addWidget(attendance_filter_group)
+        # Bottom toolbar
+        toolbar_widget = QWidget()
+        toolbar_widget.setStyleSheet("""
+            QWidget {
+                background-color: white;
+                border-radius: 8px;
+                border: 1px solid #E1E4E8;
+            }
+        """)
+        toolbar_layout = QHBoxLayout()
+        toolbar_layout.setContentsMargins(16, 12, 16, 12)
+        toolbar_widget.setLayout(toolbar_layout)
         
-        attendance_table_label = QLabel('Attendance Audit Log')
-        attendance_table_label.setFont(QFont('Arial', 12, QFont.Bold))
-        attendance_layout.addWidget(attendance_table_label)
+        self.record_count_label = QLabel('No results')
+        self.record_count_label.setFont(QFont('Segoe UI', 11))
+        self.record_count_label.setStyleSheet("color: #57606A;")
+        toolbar_layout.addWidget(self.record_count_label)
         
-        self.attendance_audit_table = QTableWidget()
-        self.attendance_audit_table.setSelectionBehavior(QTableWidget.SelectRows)
-        self.attendance_audit_table.horizontalHeader().setStretchLastSection(True)
-        self.attendance_audit_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-        attendance_layout.addWidget(self.attendance_audit_table)
+        toolbar_layout.addStretch()
         
-        self.tabs.addTab(attendance_tab, 'Attendance Audit Log')
+        export_btn = QPushButton('📊 Export to CSV')
+        export_btn.setObjectName('exportBtn')
+        export_btn.clicked.connect(self.export_results)
+        toolbar_layout.addWidget(export_btn)
         
-        # Summary Tab
-        summary_tab = QWidget()
-        summary_layout = QVBoxLayout()
-        summary_tab.setLayout(summary_layout)
-        
-        summary_label = QLabel('Audit Summary')
-        summary_label.setFont(QFont('Arial', 12, QFont.Bold))
-        summary_layout.addWidget(summary_label)
-        
-        self.summary_table = QTableWidget()
-        self.summary_table.setSelectionBehavior(QTableWidget.SelectRows)
-        self.summary_table.horizontalHeader().setStretchLastSection(True)
-        self.summary_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-        summary_layout.addWidget(self.summary_table)
-        
-        btn_refresh_summary = QPushButton('Refresh Summary')
-        btn_refresh_summary.clicked.connect(self.load_summary)
-        btn_refresh_summary.setStyleSheet("background-color: #27ae60; color: white; padding: 8px;")
-        summary_layout.addWidget(btn_refresh_summary)
-        
-        self.tabs.addTab(summary_tab, 'Summary')
+        main_layout.addWidget(toolbar_widget)
     
-    def load_audit_logs(self):
-        """Load all audit logs."""
-        self.load_marks_audit()
-        self.load_attendance_audit()
-        self.load_summary()
-    
-    def load_marks_audit(self):
-        """Load Marks audit log."""
-        try:
-            operation_filter = self.marks_operation_filter.currentText()
-            cursor = self.db_connection.get_cursor()
-            is_demo = self._is_demo_mode()
-            
-            # Build query based on filter
-            if operation_filter == 'All':
-                query = """
-                    SELECT LogID, OperationType, OperationTime, Description, RowsAffected
-                    FROM Marks_Audit_Log
-                    ORDER BY OperationTime DESC
-                """
-                cursor.execute(query)
-            else:
-                if is_demo:
-                    # SQLite uses ? placeholder
-                    query = """
-                        SELECT LogID, OperationType, OperationTime, Description, RowsAffected
-                        FROM Marks_Audit_Log
-                        WHERE OperationType = ?
-                        ORDER BY OperationTime DESC
-                    """
-                else:
-                    # PostgreSQL uses %s placeholder
-                    query = """
-                        SELECT LogID, OperationType, OperationTime, Description, RowsAffected
-                        FROM Marks_Audit_Log
-                        WHERE OperationType = %s
-                        ORDER BY OperationTime DESC
-                    """
-                cursor.execute(query, (operation_filter,))
-            
-            results = cursor.fetchall()
-            column_names = ['Log ID', 'Operation Type', 'Operation Time', 'Description', 'Rows Affected']
-            
-            self.marks_audit_table.setRowCount(len(results))
-            self.marks_audit_table.setColumnCount(len(column_names))
-            self.marks_audit_table.setHorizontalHeaderLabels(column_names)
-            
-            for row_idx, row in enumerate(results):
-                for col_idx, value in enumerate(row):
-                    item = QTableWidgetItem(str(value) if value is not None else '')
-                    item.setFlags(item.flags() & ~Qt.ItemIsEditable)
-                    
-                    # Color code by operation type
-                    if col_idx == 1:  # OperationType column
-                        if value == 'INSERT':
-                            item.setBackground(QColor(144, 238, 144))  # Light green
-                        elif value == 'UPDATE':
-                            item.setBackground(QColor(255, 255, 153))  # Light yellow
-                        elif value == 'DELETE':
-                            item.setBackground(QColor(255, 182, 193))  # Light red
-                    
-                    self.marks_audit_table.setItem(row_idx, col_idx, item)
-            
-            self.marks_audit_table.resizeColumnsToContents()
-            
-            if len(results) == 0:
-                QMessageBox.information(self, 'Info', 
-                    'No audit records found. Audit logs will be created when marks are modified.')
-        except Exception as e:
-            QMessageBox.warning(self, 'Error', f'Failed to load Marks audit log:\n{str(e)}')
-    
-    def load_attendance_audit(self):
-        """Load Attendance audit log."""
-        try:
-            operation_filter = self.attendance_operation_filter.currentText()
-            cursor = self.db_connection.get_cursor()
-            is_demo = self._is_demo_mode()
-            
-            # Build query based on filter
-            if operation_filter == 'All':
-                query = """
-                    SELECT LogID, OperationType, OperationTime, Description, RowsAffected
-                    FROM Attendance_Audit_Log
-                    ORDER BY OperationTime DESC
-                """
-                cursor.execute(query)
-            else:
-                if is_demo:
-                    # SQLite uses ? placeholder
-                    query = """
-                        SELECT LogID, OperationType, OperationTime, Description, RowsAffected
-                        FROM Attendance_Audit_Log
-                        WHERE OperationType = ?
-                        ORDER BY OperationTime DESC
-                    """
-                else:
-                    # PostgreSQL uses %s placeholder
-                    query = """
-                        SELECT LogID, OperationType, OperationTime, Description, RowsAffected
-                        FROM Attendance_Audit_Log
-                        WHERE OperationType = %s
-                        ORDER BY OperationTime DESC
-                    """
-                cursor.execute(query, (operation_filter,))
-            
-            results = cursor.fetchall()
-            column_names = ['Log ID', 'Operation Type', 'Operation Time', 'Description', 'Rows Affected']
-            
-            self.attendance_audit_table.setRowCount(len(results))
-            self.attendance_audit_table.setColumnCount(len(column_names))
-            self.attendance_audit_table.setHorizontalHeaderLabels(column_names)
-            
-            for row_idx, row in enumerate(results):
-                for col_idx, value in enumerate(row):
-                    item = QTableWidgetItem(str(value) if value is not None else '')
-                    item.setFlags(item.flags() & ~Qt.ItemIsEditable)
-                    
-                    # Color code by operation type
-                    if col_idx == 1:  # OperationType column
-                        if value == 'INSERT':
-                            item.setBackground(QColor(144, 238, 144))  # Light green
-                        elif value == 'UPDATE':
-                            item.setBackground(QColor(255, 255, 153))  # Light yellow
-                        elif value == 'DELETE':
-                            item.setBackground(QColor(255, 182, 193))  # Light red
-                    
-                    self.attendance_audit_table.setItem(row_idx, col_idx, item)
-            
-            self.attendance_audit_table.resizeColumnsToContents()
-            
-            if len(results) == 0:
-                QMessageBox.information(self, 'Info', 
-                    'No audit records found. Audit logs will be created when attendance is modified.')
-        except Exception as e:
-            QMessageBox.warning(self, 'Error', f'Failed to load Attendance audit log:\n{str(e)}')
-    
-    def load_summary(self):
-        """Load audit summary statistics."""
-        try:
-            cursor = self.db_connection.get_cursor()
-            is_demo = self._is_demo_mode()
-            
-            query = """
+    def get_query(self, query_type):
+        """Get SQL query based on selection."""
+        queries = {
+            '(a) List of students by group': """
+                -- List of students by group using STRING_AGG and COUNT
                 SELECT 
-                    'Marks' as Table_Name,
-                    OperationType,
-                    COUNT(*) as Operation_Count,
-                    SUM(RowsAffected) as Total_Rows_Affected,
-                    MAX(OperationTime) as Last_Operation_Time
-                FROM Marks_Audit_Log
-                GROUP BY OperationType
-                
-                UNION ALL
-                
+                    g.group_id,
+                    g.group_name,
+                    COUNT(DISTINCT s.student_id) as student_count,
+                    STRING_AGG(DISTINCT CONCAT(s.first_name, ' ', s.last_name), ', ' 
+                               ORDER BY CONCAT(s.first_name, ' ', s.last_name)) as students
+                FROM "group" g
+                LEFT JOIN student s ON g.group_id = s.group_id
+                GROUP BY g.group_id, g.group_name
+                ORDER BY g.group_name;
+            """,
+            
+            '(b) List of students by section': """
+                -- List of students by section using STRING_AGG, COUNT, and UPPER
                 SELECT 
-                    'Attendance' as Table_Name,
-                    OperationType,
-                    COUNT(*) as Operation_Count,
-                    SUM(RowsAffected) as Total_Rows_Affected,
-                    MAX(OperationTime) as Last_Operation_Time
-                FROM Attendance_Audit_Log
-                GROUP BY OperationType
-                
-                ORDER BY Table_Name, OperationType
+                    sec.section_id,
+                    UPPER(sec.section_name) as section_name,
+                    COUNT(DISTINCT s.student_id) as total_students,
+                    STRING_AGG(DISTINCT s.email, '; ' ORDER BY s.email) as student_emails,
+                    STRING_AGG(DISTINCT CONCAT(s.first_name, ' ', s.last_name), ', '
+                               ORDER BY CONCAT(s.first_name, ' ', s.last_name)) as students
+                FROM section sec
+                LEFT JOIN "group" g ON sec.section_id = g.section_id
+                LEFT JOIN student s ON g.group_id = s.group_id
+                GROUP BY sec.section_id, sec.section_name
+                ORDER BY sec.section_name;
+            """,
+            
+            '(c) Instructor timetables': """
+                -- Instructor timetables using STRING_AGG, COUNT, CONCAT, and TO_CHAR
+                SELECT 
+                    i.instructor_id,
+                    CONCAT(i.first_name, ' ', i.last_name) as instructor_name,
+                    COUNT(DISTINCT ts.timeslot_id) as total_slots,
+                    STRING_AGG(DISTINCT 
+                        CONCAT(ts.day_of_week, ' ', 
+                               TO_CHAR(ts.start_time, 'HH24:MI'), '-',
+                               TO_CHAR(ts.end_time, 'HH24:MI')),
+                        ', ' ORDER BY 
+                        CONCAT(ts.day_of_week, ' ', 
+                               TO_CHAR(ts.start_time, 'HH24:MI'), '-',
+                               TO_CHAR(ts.end_time, 'HH24:MI'))
+                    ) as schedule
+                FROM instructor i
+                LEFT JOIN course_assignment ca ON i.instructor_id = ca.instructor_id
+                LEFT JOIN timeslot ts ON ca.timeslot_id = ts.timeslot_id
+                GROUP BY i.instructor_id, i.first_name, i.last_name
+                ORDER BY instructor_name;
+            """,
+            
+            '(d) Student timetables (by section and group)': """
+                -- Student timetables by section and group using multiple functions
+                SELECT 
+                    sec.section_name,
+                    g.group_name,
+                    COUNT(DISTINCT s.student_id) as student_count,
+                    STRING_AGG(DISTINCT 
+                        CONCAT(c.course_name, ' - ', 
+                               ts.day_of_week, ' ',
+                               TO_CHAR(ts.start_time, 'HH24:MI'), '-',
+                               TO_CHAR(ts.end_time, 'HH24:MI')),
+                        ' | ' ORDER BY 
+                        CONCAT(c.course_name, ' - ', 
+                               ts.day_of_week, ' ',
+                               TO_CHAR(ts.start_time, 'HH24:MI'), '-',
+                               TO_CHAR(ts.end_time, 'HH24:MI'))
+                    ) as timetable
+                FROM section sec
+                JOIN "group" g ON sec.section_id = g.section_id
+                LEFT JOIN student s ON g.group_id = s.group_id
+                LEFT JOIN course_assignment ca ON g.group_id = ca.group_id
+                LEFT JOIN course c ON ca.course_id = c.course_id
+                LEFT JOIN timeslot ts ON ca.timeslot_id = ts.timeslot_id
+                GROUP BY sec.section_id, sec.section_name, g.group_id, g.group_name
+                ORDER BY sec.section_name, g.group_name;
+            """,
+            
+            '(e) Students who passed the semester': """
+                -- Students who passed using AVG, COUNT, ROUND, and CONCAT
+                SELECT 
+                    s.student_id,
+                    CONCAT(s.first_name, ' ', s.last_name) as student_name,
+                    g.group_name,
+                    COUNT(DISTINCT sm.course_id) as courses_taken,
+                    ROUND(AVG(sm.mark)::numeric, 2) as average_mark
+                FROM student s
+                JOIN "group" g ON s.group_id = g.group_id
+                JOIN student_mark sm ON s.student_id = sm.student_id
+                GROUP BY s.student_id, s.first_name, s.last_name, g.group_name
+                HAVING AVG(sm.mark) >= 10
+                ORDER BY average_mark DESC;
+            """,
+            
+            '(f) Disqualifying marks by module': """
+                -- Disqualifying marks (< 10) using COUNT, AVG, ROUND, and STRING_AGG
+                SELECT 
+                    c.course_id,
+                    c.course_name,
+                    m.module_name,
+                    COUNT(DISTINCT sm.student_id) as students_with_failing_marks,
+                    ROUND(AVG(sm.mark)::numeric, 2) as average_failing_mark,
+                    STRING_AGG(DISTINCT CONCAT(s.first_name, ' ', s.last_name, ' (', sm.mark, ')'),
+                               ', ' ORDER BY CONCAT(s.first_name, ' ', s.last_name, ' (', sm.mark, ')')) 
+                    as failing_students
+                FROM course c
+                JOIN module m ON c.module_id = m.module_id
+                JOIN student_mark sm ON c.course_id = sm.course_id
+                JOIN student s ON sm.student_id = s.student_id
+                WHERE sm.mark < 10
+                GROUP BY c.course_id, c.course_name, m.module_id, m.module_name
+                ORDER BY students_with_failing_marks DESC;
+            """,
+            
+            '(g) Average marks by course and group': """
+                -- Average marks by course and group using AVG, COUNT, ROUND, MAX, and MIN
+                SELECT 
+                    c.course_name,
+                    g.group_name,
+                    COUNT(DISTINCT sm.student_id) as students_enrolled,
+                    ROUND(AVG(sm.mark)::numeric, 2) as average_mark,
+                    MAX(sm.mark) as highest_mark,
+                    MIN(sm.mark) as lowest_mark
+                FROM course c
+                JOIN student_mark sm ON c.course_id = sm.course_id
+                JOIN student s ON sm.student_id = s.student_id
+                JOIN "group" g ON s.group_id = g.group_id
+                GROUP BY c.course_id, c.course_name, g.group_id, g.group_name
+                ORDER BY c.course_name, g.group_name;
+            """,
+            
+            '(h) Students with failing grades in a module': """
+                -- Students with failing grades using CONCAT, COUNT, and STRING_AGG
+                SELECT 
+                    m.module_name,
+                    s.student_id,
+                    CONCAT(s.first_name, ' ', s.last_name) as student_name,
+                    COUNT(DISTINCT c.course_id) as failed_courses_in_module,
+                    STRING_AGG(DISTINCT CONCAT(c.course_name, ' (', sm.mark, ')'),
+                               ', ' ORDER BY CONCAT(c.course_name, ' (', sm.mark, ')')) as failed_courses
+                FROM student s
+                JOIN student_mark sm ON s.student_id = sm.student_id
+                JOIN course c ON sm.course_id = c.course_id
+                JOIN module m ON c.module_id = m.module_id
+                WHERE sm.mark < 10
+                GROUP BY m.module_id, m.module_name, s.student_id, s.first_name, s.last_name
+                ORDER BY m.module_name, student_name;
+            """,
+            
+            '(i) Students eligible for resit': """
+                -- Students eligible for resit (mark between 8-9.99) using COUNT, ROUND, and AVG
+                SELECT 
+                    s.student_id,
+                    CONCAT(s.first_name, ' ', s.last_name) as student_name,
+                    c.course_name,
+                    sm.mark as resit_mark,
+                    g.group_name,
+                    COUNT(*) OVER (PARTITION BY s.student_id) as total_resits_needed
+                FROM student s
+                JOIN student_mark sm ON s.student_id = sm.student_id
+                JOIN course c ON sm.course_id = c.course_id
+                JOIN "group" g ON s.group_id = g.group_id
+                WHERE sm.mark >= 8 AND sm.mark < 10
+                ORDER BY student_name, c.course_name;
+            """,
+            
+            '(j) Students excluded from module': """
+                -- Students excluded (mark < 8) using COUNT, STRING_AGG, and CONCAT
+                SELECT 
+                    m.module_name,
+                    s.student_id,
+                    CONCAT(s.first_name, ' ', s.last_name) as student_name,
+                    s.email,
+                    COUNT(DISTINCT c.course_id) as excluded_courses,
+                    STRING_AGG(DISTINCT CONCAT(c.course_name, ' (', sm.mark, ')'),
+                               ', ' ORDER BY CONCAT(c.course_name, ' (', sm.mark, ')')) 
+                    as exclusion_details
+                FROM student s
+                JOIN student_mark sm ON s.student_id = sm.student_id
+                JOIN course c ON sm.course_id = c.course_id
+                JOIN module m ON c.module_id = m.module_id
+                WHERE sm.mark < 8
+                GROUP BY m.module_id, m.module_name, s.student_id, s.first_name, s.last_name, s.email
+                ORDER BY m.module_name, student_name;
             """
+        }
+        
+        return queries.get(query_type, "")
+    
+    def execute_query(self):
+        """Execute the selected query and display results."""
+        query_type = self.query_combo.currentText()
+        sql = self.get_query(query_type)
+        
+        if not sql:
+            QMessageBox.warning(self, 'Warning', 'No query defined for this selection.')
+            return
+        
+        # Display SQL
+        self.sql_display.setText(sql.strip())
+        
+        cursor = None
+        try:
+            # Rollback any pending transaction first
+            try:
+                self.connection.rollback()
+            except:
+                pass
             
-            cursor.execute(query)
-            results = cursor.fetchall()
-            column_names = ['Table Name', 'Operation Type', 'Operation Count', 
-                          'Total Rows Affected', 'Last Operation Time']
+            cursor = self.connection.cursor()
+            cursor.execute(sql)
             
-            self.summary_table.setRowCount(len(results))
-            self.summary_table.setColumnCount(len(column_names))
-            self.summary_table.setHorizontalHeaderLabels(column_names)
+            # Get column names
+            columns = [desc[0] for desc in cursor.description]
             
-            for row_idx, row in enumerate(results):
-                for col_idx, value in enumerate(row):
+            # Fetch results
+            rows = cursor.fetchall()
+            
+            # Commit the transaction (for read queries, this just clears the transaction)
+            self.connection.commit()
+            
+            # Display results in table
+            self.results_table.setColumnCount(len(columns))
+            self.results_table.setHorizontalHeaderLabels(columns)
+            self.results_table.setRowCount(len(rows))
+            
+            for i, row in enumerate(rows):
+                for j, value in enumerate(row):
                     item = QTableWidgetItem(str(value) if value is not None else '')
-                    item.setFlags(item.flags() & ~Qt.ItemIsEditable)
-                    self.summary_table.setItem(row_idx, col_idx, item)
+                    self.results_table.setItem(i, j, item)
             
-            self.summary_table.resizeColumnsToContents()
+            # Auto-resize columns
+            self.results_table.resizeColumnsToContents()
+            header = self.results_table.horizontalHeader()
+            for i in range(len(columns)):
+                if header.sectionSize(i) > 300:
+                    header.setSectionResizeMode(i, QHeaderView.Stretch)
+                else:
+                    header.setSectionResizeMode(i, QHeaderView.ResizeToContents)
             
-            if len(results) == 0:
-                QMessageBox.information(self, 'Info', 
-                    'No audit summary available. Audit logs will be created when data is modified.')
+            # Update record count
+            self.record_count_label.setText(f'Records found: {len(rows)}')
+            
         except Exception as e:
-            QMessageBox.warning(self, 'Error', f'Failed to load audit summary:\n{str(e)}')
+            # Rollback the failed transaction
+            try:
+                self.connection.rollback()
+            except:
+                pass
+            
+            QMessageBox.critical(self, 'Query Error', f'Failed to execute query:\n{str(e)}')
+            import traceback
+            traceback.print_exc()
+        
+        finally:
+            if cursor:
+                try:
+                    cursor.close()
+                except:
+                    pass
+    
+    def export_results(self):
+        """Export results to CSV file."""
+        if self.results_table.rowCount() == 0:
+            QMessageBox.warning(self, 'Warning', 'No results to export. Please run a query first.')
+            return
+        
+        try:
+            from PyQt5.QtWidgets import QFileDialog
+            import csv
+            
+            file_path, _ = QFileDialog.getSaveFileName(
+                self,
+                'Export Results',
+                '',
+                'CSV Files (*.csv);;All Files (*)'
+            )
+            
+            if not file_path:
+                return
+            
+            with open(file_path, 'w', newline='', encoding='utf-8') as csvfile:
+                writer = csv.writer(csvfile)
+                
+                # Write headers
+                headers = []
+                for col in range(self.results_table.columnCount()):
+                    headers.append(self.results_table.horizontalHeaderItem(col).text())
+                writer.writerow(headers)
+                
+                # Write data
+                for row in range(self.results_table.rowCount()):
+                    row_data = []
+                    for col in range(self.results_table.columnCount()):
+                        item = self.results_table.item(row, col)
+                        row_data.append(item.text() if item else '')
+                    writer.writerow(row_data)
+            
+            QMessageBox.information(self, 'Success', f'Results exported to:\n{file_path}')
+            
+        except Exception as e:
+            QMessageBox.critical(self, 'Export Error', f'Failed to export results:\n{str(e)}')
+    
+    def closeEvent(self, event):
+        """Handle window close event."""
+        event.accept()
