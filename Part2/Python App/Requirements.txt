@@ -1,1 +1,3 @@
-
+psycopg2-binary>=2.9.0
+PyQt5>=5.15.0
+# Note: SQLite is included with Python, no additional package needed for demo mode
